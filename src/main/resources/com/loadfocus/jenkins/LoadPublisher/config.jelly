@@ -1,0 +1,88 @@
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define"
+         xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+
+    <f:entry title="">
+      <a href="https://loadfocus.com" target="_blank">
+        <img src="${rootURL}/plugin/loadfocus-jenkins-plugin/images/logo.png" alt="logo"/>
+      </a>
+    </f:entry>
+    
+    <j:set var="keys" value="${descriptor.getCredentials(it)}"/>
+    <j:if test="${keys.size() &gt; 1}">
+      <f:entry title="${%API Key}" field="apiKey">
+        <f:select style="width:32em;"/>
+      </f:entry>
+    </j:if>
+    
+    <f:entry title="${%Test Name}:" field="testId">
+      <f:select>
+      </f:select>
+    </f:entry>
+    
+     <f:entry title="${%Error Percentage threshold}:"
+             description="${%Mark the build as Passed if the percentage of all errors received is less then the UNSTABLE and FAILED Error Percentage thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
+      <table width="450px">
+        <thead>
+          <tr>
+            <td/>
+            <td colspan="2">
+              <img src="${rootURL}/images/16x16/yellow.gif" alt="yellow"/>
+              ${%UNSTABLE}
+            </td>
+            <td colspan="2">
+              <img src="${rootURL}/images/16x16/red.gif" alt="red"/>
+              ${%FAILED}
+            </td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="vertical-align:middle">${%Errors Percentage}:</td>
+            <td>
+              <f:textbox field="errorUnstableThreshold"/>
+            </td>
+            <td>%</td>
+            <td>
+              <f:textbox field="errorFailedThreshold"/>
+            </td>
+            <td>%</td>
+          </tr>
+        </tbody>
+      </table>
+    </f:entry>
+
+    <f:entry title="" field="">
+    </f:entry>
+
+    <f:entry title="${%Response Time threshold}:"
+             description="${%Mark the build as Passed if the average response time received is less then the UNSTABLE and FAILED Time thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
+    <table width="450px">
+      <thead>
+        <tr>
+        <td/>
+        <td colspan="2">
+          <img src="${rootURL}/images/16x16/yellow.gif" alt="yellow"/>
+          ${%UNSTABLE}
+        </td>
+        <td colspan="2">
+          <img src="${rootURL}/images/16x16/red.gif" alt="red"/>
+          ${%FAILED}
+        </td>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="vertical-align:middle">${%Response Time}:</td>
+          <td>
+            <f:textbox field="responseTimeUnstableThreshold"/>
+          </td>
+          <td>ms</td>
+          <td>
+            <f:textbox field="responseTimeFailedThreshold"/>
+          </td>
+          <td>ms</td>
+        </tr>
+      </tbody>
+    </table>
+    </f:entry>
+</j:jelly>

@@ -1,0 +1,36 @@
+<j:jelly xmlns:j="jelly:core"
+         xmlns:st="jelly:stapler"
+         xmlns:d="jelly:define"
+         xmlns:l="/lib/layout"
+         xmlns:t="/lib/hudson"
+         xmlns:f="/lib/form">
+  
+  <j:set var="keys" value="${descriptor.getCredentials(app)}"/>
+  <j:if test="${keys.size() &gt; 1}">
+    <f:section title="Load Testing - LoadFocus.com">
+      <f:entry title="${%Select Default API key}" field="apiKey">
+        <f:select style="width:32em;"/>
+        <div>You can add more API keys <a href="./credentials">here</a></div>
+      </f:entry>
+    </f:section>
+  </j:if>
+  <j:if test="${keys.size() == 1}">
+    <f:section title="Load Testing - LoadFocus.com">
+      <f:entry>
+        <div>API key already defined. API keys can be <a href="./credentials">managed</a>. If more than one API key is provided a
+          drop down list will be displayed in order to select the default one.</div>
+      </f:entry>
+      <f:invisibleEntry>
+        <f:textbox name="apiKey" value="${keys[0].id}"/>
+      </f:invisibleEntry>
+    </f:section>
+  </j:if>
+  <j:if test="${keys.size() == 0}">
+    <f:section title="Load Testing - LoadFocus.com">
+    <f:entry>
+      <div>No API keys defined. Please <a href="./credentials">add new credentials</a></div>
+    </f:entry>
+  </f:section>
+  </j:if>
+
+</j:jelly>
