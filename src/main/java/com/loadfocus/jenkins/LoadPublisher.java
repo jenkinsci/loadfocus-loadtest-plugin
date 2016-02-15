@@ -58,7 +58,6 @@ public class LoadPublisher extends Notifier {
         this.responseTimeFailedThreshold = responseTimeFailedThreshold;
         this.responseTimeUnstableThreshold = responseTimeUnstableThreshold;
         this.testId = testId;
-        this.testName = testName;
     }
 	
 	@Override

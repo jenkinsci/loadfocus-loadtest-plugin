@@ -4,6 +4,11 @@ import net.sf.json.JSON;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
 import net.sf.json.JSONSerializer;
+import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.HttpException;
+import org.apache.commons.httpclient.HttpStatus;
+import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -22,7 +27,7 @@ import java.util.Map;
 public class LoadAPI {
     static final String baseApiUri = "https://loadfocus.com/";
 
-    PrintStream logger = new PrintStream(System.out);
+    PrintStream logger = System.out;
     String apiKey;
 
     public LoadAPI(String apiKey) {
@@ -35,13 +40,13 @@ public class LoadAPI {
         if (list == null) {
             return null;
         }
-        List<Map<String, String>> tests = new ArrayList<Map<String, String>>();
+        List<Map<String, String>> tests = new ArrayList<>();
 
         for (Object test : list) {
             JSONObject t = (JSONObject) test;
             String testrunname = t.getString("testrunname");
             String testrunid = t.getString("testrunid");
-            Map <String, String> m = new HashMap<String, String>();
+            Map <String, String> m = new HashMap<>();
             m.put("testrunname", testrunname);
             m.put("testrunid", testrunid);
             tests.add(m);
@@ -68,12 +73,12 @@ public class LoadAPI {
     }
 
     public boolean validateAPIKey(String path){
-        Result result = doGetRequest(path);
-        logger.println("Result " + result.code + "\n" +
-                (result.body.length() > 1000 ? result.body.substring(0, 1000) : result.body));
-        if (result.isFail()) {
+        String result = doGetRequest(path);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return false;
         }
+
         return true;
     }
 
@@ -83,14 +88,14 @@ public class LoadAPI {
     }
 
     private JSONArray getListData(String path) {
-        Result result = doGetRequest(path);
-        logger.println("Result " + result.code + "\n" +
-            (result.body.length() > 1000 ? result.body.substring(0, 1000) : result.body));
-        if (result.isFail()) {
+        String result = doGetRequest(path);
+        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
+
         try {
-            JSON list = JSONSerializer.toJSON(result.body);
+            JSON list = JSONSerializer.toJSON(result);
             if (list.isArray()) {
                 return (JSONArray) list;
             } else {
@@ -103,40 +108,42 @@ public class LoadAPI {
     }
 
     public JSONObject getRemainLimits() {
-        logger.println("in #getTest");
-        Result result = doGetRequest("api/v1/account/user/remainlimit");
-        logger.println("Result :::" + result.code + "\n" + result.body);
-        if (result.isFail()) {
+        logger.println("in #getRemainLimits");
+        String result = doGetRequest("api/v1/account/user/remainlimit");
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
-        JSONObject json = (JSONObject) JSONSerializer.toJSON(result.body);
+
+        JSONObject json = (JSONObject) JSONSerializer.toJSON(result);
         return  json;
     }
 
     public JSONObject getState(String testrunname, String testrunid) {
-        logger.println("in #getTest");
-        Result result = doGetRequest("api/v1/loadtests/state?testrunname=" + testrunname + "&testrunid=" + testrunid);
-        logger.println("Result :::" + result.code + "\n" + result.body);
-        if (result.isFail()) {
+        logger.println("in #getState");
+        String result = doGetRequest("api/v1/loadtests/state?testrunname=" + testrunname + "&testrunid=" + testrunid);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
-        JSONObject json = (JSONObject) JSONSerializer.toJSON(result.body);
+
+        JSONObject json = (JSONObject) JSONSerializer.toJSON(result);
         return  json;
     }
 
     public List<Map<String, String>> getTestConfig(String testrunname, String testrunid) {
-        logger.println("in #getConfig");
-        Result result = doGetRequest("api/v1/loadtests/result/config?testrunname=" + testrunname + "&testrunid=" + testrunid);
-        logger.println("Result :::" + result.code + "\n" + result.body);
-        if (result.isFail()) {
+        logger.println("in #getTestConfig");
+        String result = doGetRequest("api/v1/loadtests/result/config?testrunname=" + testrunname + "&testrunid=" + testrunid);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
 
-        JSONArray configList = (JSONArray) JSONSerializer.toJSON(result.body);
+        JSONArray configList = (JSONArray) JSONSerializer.toJSON(result);
         if (configList == null) {
             return null;
         }
-        List<Map<String, String>> configs = new ArrayList<Map<String, String>>();
+        List<Map<String, String>> configs = new ArrayList<>();
 
         for (Object config : configList) {
             JSONObject t = (JSONObject) config;
@@ -156,17 +163,17 @@ public class LoadAPI {
 
     public List<Map<String, String>> getTestSummaryResultAll(String testrunname, String testrunid, String location, String url, String testmachinedns) {
         logger.println("in #getSummaryResult");
-        Result result = doGetRequest("api/v1/loadtests/result/summaryResult?testrunname=" + testrunname + "&testrunid="  + testrunid + "&location=" + location + "&httprequest=" + url + "&testmachinedns=" + testmachinedns);
-        logger.println("Result :::" + result.code + "\n" + result.body);
-        if (result.isFail()) {
+        String result = doGetRequest("api/v1/loadtests/result/summaryResult?testrunname=" + testrunname + "&testrunid="  + testrunid + "&location=" + location + "&httprequest=" + url + "&testmachinedns=" + testmachinedns);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
 
-        JSONArray resultList = (JSONArray) JSONSerializer.toJSON(result.body);
+        JSONArray resultList = (JSONArray) JSONSerializer.toJSON(result);
         if (resultList == null) {
             return null;
         }
-        List<Map<String, String>> results = new ArrayList<Map<String, String>>();
+        List<Map<String, String>> results = new ArrayList<>();
 
         for (Object config : resultList) {
             JSONObject t = (JSONObject) config;
@@ -187,27 +194,23 @@ public class LoadAPI {
         return results;
     }
 
-    private Result doGetRequest(String path) {
-        return doRequest(new HttpGet(), path);
-    }
-
     public Map<String, String> runTest(String testId) {
-        logger.println("in #getTests");
+        logger.println("in #runTest");
 
-        String path  = "api/v1/loadtests/newtest/execute?testrunname=" + testId;
+        String path = "api/v1/loadtests/newtest/execute?testrunname=" + testId;
 
-        Result result = doPostRequest(path);
-        logger.println("Result :::" + result.code + "\n" + result.body);
-        if (result.isFail()) {
+        String result = doPostRequest(path);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
 
-        JSONObject body = (JSONObject) JSONSerializer.toJSON(result.body);
+        JSONObject body = (JSONObject) JSONSerializer.toJSON(result);
 
         Map<String, String> resultDetails = new HashMap<String, String>();
         resultDetails.put("success", body.get("success").toString());
 
-        if(result.body != null && body.get("success").equals(true)){
+        if(result != null && body.get("success").equals(true)){
             resultDetails.put("testrunname", body.get("testrunname").toString());
             resultDetails.put("testrunid", body.get("testrunid").toString());
 
@@ -220,68 +223,75 @@ public class LoadAPI {
 
     }
 
-    private Result doPostRequest(String path) {
-        return doRequest(new HttpPost(), path);
-    }
-
-    private Result doRequest(HttpRequestBase request, String path) {
-        stuffHttpRequest(request, path);
-        DefaultHttpClient client = new DefaultHttpClient();
-        HttpResponse response;
-        try {
-            response = client.execute(request);
-        } catch (IOException ex) {
-            logger.format("Error during remote call to API. Exception received: %s", ex);
-            return new Result("Network error during remote call to API");
-        }
-        return new Result(response);
-    }
-
-    private void stuffHttpRequest(HttpRequestBase request, String path) {
-        URI fullUri = null;
+    private String doGetRequest(String path) {
+        URI fullUri;
         try {
             fullUri = new URI(baseApiUri + path);
         } catch (java.net.URISyntaxException ex) {
             throw new RuntimeException("Incorrect URI format: %s", ex);
         }
-        request.setURI(fullUri);
-        request.addHeader("Content-Type", "application/json");
-        request.addHeader("loadfocus-auth", apiKey);
+
+        HttpClient client = new HttpClient();
+
+        GetMethod method = new GetMethod(fullUri.toString());
+        method.addRequestHeader("Content-Type", "application/json");
+        method.addRequestHeader("loadfocus-auth", apiKey);
+
+        try {
+            int statusCode = client.executeMethod(method);
+            if (statusCode != HttpStatus.SC_OK) {
+                logger.format("Method failed: " + method.getStatusLine());
+            }
+
+            byte[] responseBody = method.getResponseBody();
+//            logger.format(new String(responseBody), "UTF-8");
+
+            return new String(responseBody);
+
+        } catch (HttpException e) {
+            logger.format("Fatal protocol violation: " + e.getMessage());
+        } catch (IOException e) {
+            logger.format("Fatal transport error: " + e.getMessage());
+        } finally {
+            method.releaseConnection();
+        }
+
+        return "NOTRUNNING";
     }
 
-    static class Result {
-        public int code;
-        public String errorMessage;
-        public String body;
-
-        static final String badResponseError = "Bad response from API.";
-        static final String formatError = "Invalid error format in response.";
-
-        public Result(String error) {
-            code = -1;
-            errorMessage = error;
+    private String doPostRequest(String path) {
+        URI fullUri;
+        try {
+            fullUri = new URI(baseApiUri + path);
+        } catch (java.net.URISyntaxException ex) {
+            throw new RuntimeException("Incorrect URI format: %s", ex);
         }
 
-        public Result(HttpResponse response) {
-            code = response.getStatusLine().getStatusCode();
-            try {
-                body = EntityUtils.toString(response.getEntity());
-            } catch (IOException ex) {
-                code = -1;
-                errorMessage = badResponseError;
+        HttpClient client = new HttpClient();
+
+        PostMethod method = new PostMethod(fullUri.toString());
+        method.addRequestHeader("Content-Type", "application/json");
+        method.addRequestHeader("loadfocus-auth", apiKey);
+
+        try {
+            int statusCode = client.executeMethod(method);
+            if (statusCode != HttpStatus.SC_OK) {
+                logger.format("Method failed: " + method.getStatusLine());
             }
 
-            if (code != 200) {
-                errorMessage = "An Error Occurred!";
-            }
+            byte[] responseBody = method.getResponseBody();
+//            logger.format(new String(responseBody), "UTF-8");
+
+            return new String(responseBody);
+
+        } catch (HttpException e) {
+            logger.format("Fatal protocol violation: " + e.getMessage());
+        } catch (IOException e) {
+            logger.format("Fatal transport error: " + e.getMessage());
+        } finally {
+            method.releaseConnection();
         }
 
-        public boolean isOk() {
-            return 200 == code;
-        }
-
-        public boolean isFail() {
-            return !isOk();
-        }
+        return "NOTRUNNING";
     }
 }

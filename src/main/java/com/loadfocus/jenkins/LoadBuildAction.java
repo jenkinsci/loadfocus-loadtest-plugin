@@ -23,7 +23,7 @@ public class LoadBuildAction implements HealthReportingAction {
     }
 	
 	public String getIconFileName() {
-		return "/plugin/loadfocus-jenkins-plugin/images/icon48.png";
+		return "/plugin/loadfocus-loadtest/images/icon48.png";
 	}
 
 	public String getDisplayName() {

@@ -3,7 +3,7 @@
 
     <f:entry title="">
       <a href="https://loadfocus.com" target="_blank">
-        <img src="${rootURL}/plugin/loadfocus-jenkins-plugin/images/logo.png" alt="logo"/>
+        <img src="${rootURL}/plugin/loadfocus-loadtest/images/logo.png" alt="logo"/>
       </a>
     </f:entry>
     
