@@ -74,11 +74,10 @@
             <url>http://repo.jenkins-ci.org/public/</url>
         </pluginRepository>
     </pluginRepositories>
+    
     <scm>
-        <connection>scm:git:ssh://github.com/jenkinsci/MYPLUGINNAME.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/jenkinsci/MYPLUGINNAME.git</developerConnection>
-        <url>https://github.com/jenkinsci/MYPLUGINNAME</url>
+        <connection>scm:git:ssh://github.com/jenkinsci/loadfocus-loadtest-plugin.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/jenkinsci/loadfocus-loadtest-plugin.git</developerConnection>
+        <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
     </scm>
-
-
 </project>
