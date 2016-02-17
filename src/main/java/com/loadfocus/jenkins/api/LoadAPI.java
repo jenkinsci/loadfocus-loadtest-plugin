@@ -244,9 +244,7 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-//            logger.format(new String(responseBody), "UTF-8");
-
-            return new String(responseBody);
+            return new String(responseBody, "UTF-8");
 
         } catch (HttpException e) {
             logger.format("Fatal protocol violation: " + e.getMessage());
@@ -280,9 +278,7 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-//            logger.format(new String(responseBody), "UTF-8");
-
-            return new String(responseBody);
+            return new String(responseBody, "UTF-8");
 
         } catch (HttpException e) {
             logger.format("Fatal protocol violation: " + e.getMessage());
