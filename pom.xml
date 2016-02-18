@@ -23,7 +23,7 @@
     </organization>
 
     <name>Load Testing LoadFocus.com Plugin</name>
-    <url>https://wiki.jenkins-ci.org/display/JENKINS/loadfocus</url>
+    <url>https://wiki.jenkins-ci.org/display/JENKINS/LoadFocus+Load+Testing+Plugin</url>
     <description>Cloud Load Testing for Websites and APIs with thousands of parallel connections - by LoadFocus.com
     </description>
 
@@ -80,5 +80,11 @@
         <url>https://github.com/jenkinsci/MYPLUGINNAME</url>
     </scm>
 
-
+   <developers>
+      <developer>
+        <id>loadfocus</id>
+        <name>LoadFocus Team</name>
+        <email>contact@loadfocus.com</email>
+      </developer>
+   </developers>
 </project>
