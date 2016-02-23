@@ -6,3 +6,4 @@ work/
 release.properties
 .settings
 .classpath
+*.iml
