@@ -14,7 +14,7 @@
 
     <groupId>com.loadfocus</groupId>
     <artifactId>loadfocus-loadtest</artifactId>
-    <version>1.0.1-SNAPSHOT</version>
+    <version>1.0.1</version>
     <packaging>hpi</packaging>
 
     <organization>
@@ -86,7 +86,8 @@
         <connection>scm:git:ssh://github.com/jenkinsci/loadfocus-loadtest-plugin.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/jenkinsci/loadfocus-loadtest-plugin.git</developerConnection>
         <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
-    </scm>
+      <tag>loadfocus-loadtest-1.0.1</tag>
+  </scm>
 
     <build>
         <plugins>
