@@ -1,6 +1,7 @@
 package com.loadfocus.jenkins;
 
 import com.cloudbees.plugins.credentials.CredentialsProvider;
+import com.loadfocus.jenkins.api.LoadAPI;
 import hudson.Extension;
 import hudson.Launcher;
 import hudson.model.*;
@@ -12,10 +13,9 @@ import hudson.tasks.Publisher;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import hudson.util.Secret;
-import com.loadfocus.jenkins.api.LoadAPI;
 import jenkins.model.Jenkins;
+import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.commons.lang.StringUtils;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
@@ -26,23 +26,14 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.*;
 
-
 public class LoadPublisher extends Notifier {
-	
 	private String apiKey;
-	
 	private String testId = "";
-
 	private String testName = "";
-
     private int errorFailedThreshold = 0;
-
     private int errorUnstableThreshold = 0;
-
     private int responseTimeFailedThreshold = 0;
-
     private int responseTimeUnstableThreshold = 0;
-    
     private PrintStream logger;
 	
 	@DataBoundConstructor
@@ -82,32 +73,35 @@ public class LoadPublisher extends Notifier {
         LoadAPI loadApi = new LoadAPI(apiKey);
         Map<String, String> resultDetails;
 
-        JSONObject limits = loadApi.getRemainLimits();
-        JSONObject remaining = (JSONObject) limits.get("remaining");
-        int remaininigloadtestsday = Integer.parseInt(remaining.get("remaininigloadtestsday").toString());
-        int remaininigloadtestsmonth = Integer.parseInt(remaining.get("remaininigloadtestsmonth").toString());
+//        JSONObject limits = loadApi.getRemainLimits();
+//        JSONObject remaining = (JSONObject) limits.get("remaining");
+//        int remaininigloadtestsday = Integer.parseInt(remaining.get("remaininigloadtestsday").toString());
+//        int remaininigloadtestsmonth = Integer.parseInt(remaining.get("remaininigloadtestsmonth").toString());
+//
+//        if (remaininigloadtestsday <= 0 || remaininigloadtestsmonth <= 0){
+//            logInfo("Over limits for apiKey: " + apiKey + " remaininigloadtestsday: " + remaininigloadtestsday + " remaininigloadtestsmonth: " + remaininigloadtestsmonth);
+//            result = Result.NOT_BUILT;
+//            return false;
+//        }
 
-        if (remaininigloadtestsday <= 0 || remaininigloadtestsmonth <= 0){
-            logInfo("Over limits for apiKey: " + apiKey + " remaininigloadtestsday: " + remaininigloadtestsday + " remaininigloadtestsmonth: " + remaininigloadtestsmonth);
-            result = Result.NOT_BUILT;
-            return false;
-        }
+//        resultDetails = loadApi.runTest(getTestId());
+        JSONObject resultObj = loadApi.runTest(getTestId());
+        JSONObject configObj = loadApi.retrieveConfig(getTestId());
 
-        resultDetails = loadApi.runTest(getTestId());
+        String testrunname = getTestId();
+        String testrunid = (String) configObj.get("testrunid");
 
-        String testrunname = resultDetails.get("testrunname");
-        String testrunid = resultDetails.get("testrunid");
         if (testrunname.equals("") ||  testrunid.equals("")) {
         	logInfo("Invalid test information");
         	result = Result.NOT_BUILT;
             return false;
         }
-        
+
         int lastPrint = 0;
         int interval = 5;
-        
+        JSONObject state;
         while (true) {
-            JSONObject state = loadApi.getState(testrunname, testrunid);
+            state = loadApi.getState(testrunname, testrunid);
 
             String testrunnameState = state.get("testrunname").toString();
             String testrunidState = state.get("testrunid").toString();
@@ -120,7 +114,7 @@ public class LoadPublisher extends Notifier {
             }
 
             if (currentState.equalsIgnoreCase("initializing") || currentState.equalsIgnoreCase("hardware_build") || currentState.equalsIgnoreCase("provisioning")
-                    || currentState.equalsIgnoreCase("software_build") || currentState.equalsIgnoreCase("software_install") || currentState.equalsIgnoreCase("running")) {
+                    || currentState.equalsIgnoreCase("software_build") || currentState.equalsIgnoreCase("software_install") ||currentState.equalsIgnoreCase("pending_execution") || currentState.equalsIgnoreCase("running")) {
         		    logInfo("Waiting for test results " + lastPrint + " sec");
 
         		if (lastPrint > 60000) {
@@ -135,98 +129,102 @@ public class LoadPublisher extends Notifier {
         		break;
         	}
         }
-        
-        Thread.sleep(5 * 1000);
 
-        List<Map<String, String>> configs = loadApi.getTestConfig(testrunname, testrunid);
+        Thread.sleep(3 * 1000);
 
-        List<Map<String, String>> results = new ArrayList<Map<String, String>>();
-        for (int i = 0; i < configs.size(); i++){
-            String location = configs.get(i).get("location").toString();
-            String httprequest = configs.get(i).get("httprequest").toString();
-            String testmachinedns = configs.get(i).get("testmachinedns").toString();
+        JSONArray labelsObj = loadApi.getLabels(testrunname, testrunid, apiKey);
 
-            List<Map<String, String>> summaryresults = loadApi.getTestSummaryResultAll(testrunname, testrunid, location, httprequest, testmachinedns);
+        String label = labelsObj.getJSONObject(0).get("label").toString();
 
-            for (int j = 0; j < summaryresults.size(); j++){
-                Map<String, String> m = new HashedMap();
-                String time = summaryresults.get(j).get("time").toString();
-                String errPercentTotal = summaryresults.get(j).get("errPercentTotal").toString();
-                String errTotal = summaryresults.get(j).get("errTotal").toString();
-                String hitsTotal = summaryresults.get(j).get("hitsTotal").toString();
-                String httprequestCurrent = summaryresults.get(j).get("httprequest").toString();
+        JSONObject resultsFinalObj = loadApi.getResultsFinal(testrunname, testrunid, state, label, apiKey);
 
-                m.put("time", time);
-                m.put("errPercentTotal", errPercentTotal);
-                m.put("errTotal", errTotal);
-                m.put("hitsTotal", hitsTotal);
-                m.put("httprequest", httprequestCurrent);
-                results.add(m);
-            }
-        }
-
-        int countErrorFail = 0;
-        int countErrorUnstable = 0;
-        int countTimeFail = 0;
-        int countTimeUnstable = 0;
-
-        for (int k = 0; k < results.size(); k++){
-
-            double time = Double.parseDouble(results.get(k).get("time").toString());
-            double errPercentTotal = Double.parseDouble(results.get(k).get("errPercentTotal").toString());
-            double errTotal = Double.parseDouble(results.get(k).get("errTotal").toString());
-            double hitsTotal = Double.parseDouble(results.get(k).get("hitsTotal").toString());
-            String httprequest = results.get(k).get("httprequest").toString();
-
-            double thresholdTolerance = 0.00005;
-
-            if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
-                countErrorFail++;
-                logInfo("Test ended with " + Result.FAILURE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
-            } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
-                countErrorUnstable++;
-                logInfo("Test ended with " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
-            }
-
-            if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
-                countTimeFail++;
-                logInfo("Test ended with " + Result.FAILURE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
-
-            } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
-                countTimeUnstable++;
-                logInfo("Test ended with " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
-            }
-        }
-
-        if(countErrorFail > 0){
-            result = Result.FAILURE;
-        } else if(countErrorUnstable > 0){
-            result = Result.UNSTABLE;
-        } else if(countTimeFail > 0){
-            result = Result.FAILURE;
-        } else if(countTimeUnstable > 0){
-            result = Result.UNSTABLE;
-        }
-
+        List<Map<String, String>> results = new ArrayList<>();
+//        for (int i = 0; i < configs.size(); i++){
+//            String location = configs.get(i).get("location").toString();
+//            String httprequest = configs.get(i).get("httprequest").toString();
+//            String testmachinedns = configs.get(i).get("testmachinedns").toString();
 //
-        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
-        build.getActions().add(action);
-        build.setResult(result);
+//            List<Map<String, String>> summaryresults = loadApi.getTestSummaryResultAll(testrunname, testrunid, location, httprequest, testmachinedns);
+//
+//            for (int j = 0; j < summaryresults.size(); j++){
+//                Map<String, String> m = new HashedMap();
+//                String time = summaryresults.get(j).get("time").toString();
+//                String errPercentTotal = summaryresults.get(j).get("errPercentTotal").toString();
+//                String errTotal = summaryresults.get(j).get("errTotal").toString();
+//                String hitsTotal = summaryresults.get(j).get("hitsTotal").toString();
+//                String httprequestCurrent = summaryresults.get(j).get("httprequest").toString();
+//
+//                m.put("time", time);
+//                m.put("errPercentTotal", errPercentTotal);
+//                m.put("errTotal", errTotal);
+//                m.put("hitsTotal", hitsTotal);
+//                m.put("httprequest", httprequestCurrent);
+//                results.add(m);
+//            }
+//        }
+//
+//        int countErrorFail = 0;
+//        int countErrorUnstable = 0;
+//        int countTimeFail = 0;
+//        int countTimeUnstable = 0;
+//
+//        for (int k = 0; k < results.size(); k++){
+//
+//            double time = Double.parseDouble(results.get(k).get("time").toString());
+//            double errPercentTotal = Double.parseDouble(results.get(k).get("errPercentTotal").toString());
+//            double errTotal = Double.parseDouble(results.get(k).get("errTotal").toString());
+//            double hitsTotal = Double.parseDouble(results.get(k).get("hitsTotal").toString());
+//            String httprequest = results.get(k).get("httprequest").toString();
+//
+//            double thresholdTolerance = 0.00005;
+//
+//            if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
+//                countErrorFail++;
+//                logInfo("Test ended with " + Result.FAILURE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
+//            } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
+//                countErrorUnstable++;
+//                logInfo("Test ended with " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
+//            }
+//
+//            if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
+//                countTimeFail++;
+//                logInfo("Test ended with " + Result.FAILURE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
+//
+//            } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
+//                countTimeUnstable++;
+//                logInfo("Test ended with " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
+//            }
+//        }
+//
+//        if(countErrorFail > 0){
+//            result = Result.FAILURE;
+//        } else if(countErrorUnstable > 0){
+//            result = Result.UNSTABLE;
+//        } else if(countTimeFail > 0){
+//            result = Result.FAILURE;
+//        } else if(countTimeUnstable > 0){
+//            result = Result.UNSTABLE;
+//        }
+//
+////
+//        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
+//        build.getActions().add(action);
+//        build.setResult(result);
 
         Thread.sleep(5 * 1000);
 
 
 
-        
+
 		return true;
 	}
-	
+
 	private void logInfo(String str) {
 		if (logger != null) {
 			logger.println("loadfocus.com: " + str);
 		}
 	}
-	
+
 	private Result validateParameters(PrintStream logger) {
         Result result = Result.SUCCESS;
         if (errorUnstableThreshold >= 0 && errorUnstableThreshold <= 100) {
@@ -270,11 +268,11 @@ public class LoadPublisher extends Notifier {
 	public BuildStepMonitor getRequiredMonitorService() {
 		return BuildStepMonitor.BUILD;
 	}
-	
+
 	public String getApiKey() {
         return apiKey;
     }
-	
+
 	public int getResponseTimeFailedThreshold() {
         return responseTimeFailedThreshold;
     }
@@ -290,7 +288,7 @@ public class LoadPublisher extends Notifier {
     public void setResponseTimeUnstableThreshold(int responseTimeUnstableThreshold) {
         this.responseTimeUnstableThreshold = responseTimeUnstableThreshold;
     }
-    
+
     public int getErrorFailedThreshold() {
         return errorFailedThreshold;
     }
@@ -331,11 +329,11 @@ public class LoadPublisher extends Notifier {
 
     @Extension
     public static final LoadPerformancePublisherDescriptor DESCRIPTOR = new LoadPerformancePublisherDescriptor();
-	
+
 	public static final class DescriptorImpl
     	extends LoadPerformancePublisherDescriptor {
 	}
-	
+
 	public static class LoadPerformancePublisherDescriptor extends BuildStepDescriptor<Publisher> {
 		private String apiKey;
 
@@ -343,7 +341,7 @@ public class LoadPublisher extends Notifier {
             super(LoadPublisher.class);
             load();
         }
-        
+
      // Used by config.jelly to display the test list.
         public ListBoxModel doFillTestIdItems(@QueryParameter String apiKey) throws FormValidation {
             if (StringUtils.isBlank(apiKey)) {
@@ -364,7 +362,7 @@ public class LoadPublisher extends Notifier {
                 items.add("No API Key", "-1");
             } else {
 	            LoadAPI lda = new LoadAPI(apiKeyValue.getPlainText());
-	
+
 	            try {
 	                List<Map<String, String>> testList = lda.getTestList();
 	                if (testList == null){
@@ -382,7 +380,7 @@ public class LoadPublisher extends Notifier {
             }
             return items;
         }
-        
+
         public ListBoxModel doFillApiKeyItems() {
             ListBoxModel items = new ListBoxModel();
             Set<String> apiKeys = new HashSet<String>();
@@ -405,7 +403,7 @@ public class LoadPublisher extends Notifier {
             }
             return items;
         }
-        
+
         public List<LoadCredential> getCredentials(Object scope) {
             List<LoadCredential> result = new ArrayList<LoadCredential>();
             Set<String> apiKeys = new HashSet<String>();
@@ -421,7 +419,7 @@ public class LoadPublisher extends Notifier {
             }
             return result;
         }
-		
+
 		@Override
 		public boolean isApplicable(Class<? extends AbstractProject> jobType) {
 			return true;
@@ -431,14 +429,14 @@ public class LoadPublisher extends Notifier {
 		public String getDisplayName() {
 			return "Load Testing by LoadFocus.com";
 		}
-		
+
 		@Override
         public boolean configure(StaplerRequest req, JSONObject formData) throws FormException {
             apiKey = formData.optString("apiKey");
             save();
             return true;
         }
-		
+
 		public String getApiKey() {
             List<LoadCredential> credentials = CredentialsProvider
                     .lookupCredentials(LoadCredential.class, Jenkins.getInstance(), ACL.SYSTEM);
@@ -456,14 +454,10 @@ public class LoadPublisher extends Notifier {
             // API key is not valid any more
             return "";
         }
-		
+
 		public void setApiKey(String apiKey) {
 			this.apiKey = apiKey;
 	    }
-		
+
 	}
-
-   
-
 }
-
