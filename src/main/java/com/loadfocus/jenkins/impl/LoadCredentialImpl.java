@@ -1,16 +1,12 @@
 package com.loadfocus.jenkins.impl;
 
 import com.cloudbees.plugins.credentials.CredentialsDescriptor;
-import com.cloudbees.plugins.credentials.CredentialsScope;
-
-import hudson.Extension;
-import hudson.util.FormValidation;
-import hudson.util.ListBoxModel;
-import hudson.util.Secret;
 import com.loadfocus.jenkins.AbstractCredential;
 import com.loadfocus.jenkins.api.LoadAPI;
+import hudson.Extension;
+import hudson.util.FormValidation;
+import hudson.util.Secret;
 import net.sf.json.JSONException;
-
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 
@@ -43,13 +39,6 @@ public class LoadCredentialImpl extends AbstractCredential {
         @Override
         public String getDisplayName() {
             return Messages.LoadCredential_DisplayName();
-        }
-
-        @Override
-        public ListBoxModel doFillScopeItems() {
-            ListBoxModel m = new ListBoxModel();
-            m.add(CredentialsScope.GLOBAL.getDisplayName(), CredentialsScope.GLOBAL.toString());
-            return m;
         }
 
         public FormValidation doTestConnection(@QueryParameter("apiKey") final String apiKey) throws MessagingException, IOException, JSONException, ServletException {
