@@ -9,16 +9,20 @@ import org.apache.commons.httpclient.HttpException;
 import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpGet;
+import org.apache.http.HttpEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -74,7 +78,6 @@ public class LoadAPI {
 
     public boolean validateAPIKey(String path){
         String result = doGetRequest(path);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return false;
         }
@@ -89,7 +92,7 @@ public class LoadAPI {
 
     private JSONArray getListData(String path) {
         String result = doGetRequest(path);
-        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
+//        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
@@ -131,6 +134,18 @@ public class LoadAPI {
         return  json;
     }
 
+    public JSONObject retrieveConfig(String testrunname) {
+        logger.println("in #retrieveConfig");
+        String result = doGetRequest("api/v1/loadtests/retrieveconfig?testrunname=" + testrunname);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
+            return null;
+        }
+
+        return (JSONObject) JSONSerializer.toJSON(result);
+    }
+
+
     public List<Map<String, String>> getTestConfig(String testrunname, String testrunid) {
         logger.println("in #getTestConfig");
         String result = doGetRequest("api/v1/loadtests/result/config?testrunname=" + testrunname + "&testrunid=" + testrunid);
@@ -161,41 +176,9 @@ public class LoadAPI {
         return configs;
     }
 
-    public List<Map<String, String>> getTestSummaryResultAll(String testrunname, String testrunid, String location, String url, String testmachinedns) {
-        logger.println("in #getSummaryResult");
-        String result = doGetRequest("api/v1/loadtests/result/summaryResult?testrunname=" + testrunname + "&testrunid="  + testrunid + "&location=" + location + "&httprequest=" + url + "&testmachinedns=" + testmachinedns);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONArray resultList = (JSONArray) JSONSerializer.toJSON(result);
-        if (resultList == null) {
-            return null;
-        }
-        List<Map<String, String>> results = new ArrayList<>();
-
-        for (Object config : resultList) {
-            JSONObject t = (JSONObject) config;
-            String time = t.getString("time");
-            String errPercentTotal = t.getString("errPercentTotal");
-            String errTotal = t.getString("errTotal");
-            String hitsTotal = t.getString("hitsTotal");
-            String httprequest = t.getString("httprequest");
-            Map <String, String> m = new HashMap<String, String>();
-            m.put("time", time);
-            m.put("errPercentTotal", errPercentTotal);
-            m.put("errTotal", errTotal);
-            m.put("hitsTotal", hitsTotal);
-            m.put("httprequest", httprequest);
-            results.add(m);
-        }
-
-        return results;
-    }
-
-    public Map<String, String> runTest(String testId) {
+    public JSONObject runTest(String testId) {
         logger.println("in #runTest");
+        logger.println(baseApiUri);
 
         String path = "api/v1/loadtests/newtest/execute?testrunname=" + testId;
 
@@ -205,22 +188,61 @@ public class LoadAPI {
             return null;
         }
 
-        JSONObject body = (JSONObject) JSONSerializer.toJSON(result);
+        JSONObject resultBody = (JSONObject) JSONSerializer.toJSON(result);
 
-        Map<String, String> resultDetails = new HashMap<String, String>();
-        resultDetails.put("success", body.get("success").toString());
+        return resultBody;
+    }
 
-        if(result != null && body.get("success").equals(true)){
-            resultDetails.put("testrunname", body.get("testrunname").toString());
-            resultDetails.put("testrunid", body.get("testrunid").toString());
+    public JSONArray getLabels(String testrunname, String testrunid, String apikey) throws UnsupportedEncodingException {
+        logger.println("in #runTest");
+        logger.println(baseApiUri);
 
-            return resultDetails;
-        }else{
-            resultDetails.put("testrunname", "");
-            resultDetails.put("testrunid", "");
-            return resultDetails;
+        String path = "api/v1/loadtests/labels?apikey=" + apikey;
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.accumulate("testrunname", testrunname);
+        jsonObject.accumulate("testrunid", testrunid);
+
+        String result = doPostRequest(path, jsonObject);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
+            return null;
         }
 
+        JSONArray resultBody = (JSONArray) JSONSerializer.toJSON(result);
+
+        return resultBody;
+    }
+
+    public JSONArray getResultsFinal(String testrunname, String testrunid, JSONObject state, String label, String apikey) throws UnsupportedEncodingException {
+        logger.println("in #runTest");
+        logger.println(baseApiUri);
+
+        String path = "api/v1/loadtests/aggregate/results?apikey=" + apikey;
+
+        Long teststarttime = Long.parseLong(state.get("teststarttime").toString());
+        Long teststoptime = Long.parseLong(state.get("teststoptime").toString());
+
+        JSONObject jsonObject = new JSONObject();
+        jsonObject.accumulate("testrunname", testrunname);
+        jsonObject.accumulate("testrunid", testrunid);
+        jsonObject.accumulate("from", teststarttime);
+        jsonObject.accumulate("to",  teststoptime);
+        jsonObject.accumulate("machinenumber", 1);
+
+
+        jsonObject.accumulate("filter[]", label);
+        jsonObject.accumulate("sortasc[]", "timestamp");
+        jsonObject.accumulate("batchsize", 1);
+        jsonObject.accumulate("granularity", "none");
+
+        String result = doPostRequest(path, jsonObject);
+        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        if (result.equalsIgnoreCase("NOTRUNNING")) {
+            return null;
+        }
+
+        return (JSONArray) JSONSerializer.toJSON(result);
     }
 
     private String doGetRequest(String path) {
@@ -244,7 +266,8 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-            return new String(responseBody, "UTF-8");
+          
+            return new String(responseBody, StandardCharsets.UTF_8);
 
         } catch (HttpException e) {
             logger.format("Fatal protocol violation: " + e.getMessage());
@@ -278,7 +301,8 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-            return new String(responseBody, "UTF-8");
+
+            return new String(responseBody, StandardCharsets.UTF_8);
 
         } catch (HttpException e) {
             logger.format("Fatal protocol violation: " + e.getMessage());
@@ -289,5 +313,40 @@ public class LoadAPI {
         }
 
         return "NOTRUNNING";
+    }
+
+    private String doPostRequest(String path, JSONObject jsonObject) throws UnsupportedEncodingException {
+        URI fullUri;
+        try {
+            fullUri = new URI(baseApiUri + path);
+        } catch (java.net.URISyntaxException ex) {
+            throw new RuntimeException("Incorrect URI format: %s", ex);
+        }
+
+        CloseableHttpClient httpclient = HttpClients.createDefault();
+
+        String JSON_STRING = jsonObject.toString();
+
+        StringEntity requestEntity = new StringEntity(
+                JSON_STRING,
+                ContentType.APPLICATION_JSON);
+
+        HttpPost httpPost = new HttpPost(fullUri.toString());
+        httpPost.addHeader("Content-Type", "application/json");
+        httpPost.addHeader("loadfocus-auth", apiKey);
+        httpPost.setEntity(requestEntity);
+
+        try {
+            CloseableHttpResponse response = httpclient.execute(httpPost);
+            HttpEntity entity = response.getEntity();
+            String result = EntityUtils.toString(entity);
+            return result;
+        } catch (HttpException e) {
+            logger.format("Fatal protocol violation: " + e.getMessage());
+            return null;
+        } catch (IOException e) {
+            logger.format("Fatal transport error: " + e.getMessage());
+            return null;
+        }
     }
 }

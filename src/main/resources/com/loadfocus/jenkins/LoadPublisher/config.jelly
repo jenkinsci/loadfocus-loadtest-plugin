@@ -3,7 +3,7 @@
 
     <f:entry title="">
       <a href="https://loadfocus.com" target="_blank">
-        <img src="${rootURL}/plugin/loadfocus-loadtest/images/logo.png" alt="logo"/>
+        <img src="${rootURL}/plugin/loadfocus-loadtest/images/logo.png" alt="logo" height="50px"/>
       </a>
     </f:entry>
     
@@ -18,7 +18,7 @@
       <f:select>
       </f:select>
     </f:entry>
-    
+
      <f:entry title="${%Error Percentage threshold}:"
              description="${%Mark the build as Passed if the percentage of all errors received is less then the UNSTABLE and FAILED Error Percentage thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
       <table width="450px">

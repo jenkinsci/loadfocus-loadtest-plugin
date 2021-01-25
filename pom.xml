@@ -13,6 +13,7 @@
     </properties>
 
     <groupId>com.loadfocus</groupId>
+  
     <artifactId>loadfocus-loadtest</artifactId>
     <version>1.0.2-SNAPSHOT</version>
     <packaging>hpi</packaging>
@@ -23,6 +24,7 @@
     </organization>
 
     <name>Load Testing LoadFocus.com Plugin</name>
+
     <url>https://wiki.jenkins-ci.org/display/JENKINS/LoadFocus+Load+Testing+Plugin</url>
     <description>Cloud Load Testing for Websites and APIs with thousands of parallel connections - by LoadFocus.com</description>
     <developers>
@@ -33,21 +35,22 @@
         </developer>
      </developers>
 
+
     <dependencies>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
-            <version>4.5.1</version>
+            <version>4.5.13</version>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpcore</artifactId>
-            <version>4.4.4</version>
+            <version>4.4.14</version>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpcore-nio</artifactId>
-            <version>4.4.4</version>
+            <version>4.4.14</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
