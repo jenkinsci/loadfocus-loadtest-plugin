@@ -24,6 +24,7 @@ import org.kohsuke.stapler.StaplerRequest;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
 import java.util.*;
 
 public class LoadPublisher extends Notifier {
@@ -59,6 +60,8 @@ public class LoadPublisher extends Notifier {
 		logger = listener.getLogger();
         Result result;
         String session;
+        String testrunname = getTestId();
+        logInfo("Test Started: " + testrunname);
         if ((result = validateParameters(logger)) != Result.SUCCESS) {
             return true;
         }
@@ -73,20 +76,6 @@ public class LoadPublisher extends Notifier {
         }
         
         LoadAPI loadApi = new LoadAPI(apiKey);
-        Map<String, String> resultDetails;
-
-//        JSONObject limits = loadApi.getRemainLimits();
-//        JSONObject remaining = (JSONObject) limits.get("remaining");
-//        int remaininigloadtestsday = Integer.parseInt(remaining.get("remaininigloadtestsday").toString());
-//        int remaininigloadtestsmonth = Integer.parseInt(remaining.get("remaininigloadtestsmonth").toString());
-//
-//        if (remaininigloadtestsday <= 0 || remaininigloadtestsmonth <= 0){
-//            logInfo("Over limits for apiKey: " + apiKey + " remaininigloadtestsday: " + remaininigloadtestsday + " remaininigloadtestsmonth: " + remaininigloadtestsmonth);
-//            result = Result.NOT_BUILT;
-//            return false;
-//        }
-
-//        resultDetails = loadApi.runTest(getTestId());
         JSONObject resultObj = loadApi.runTest(getTestId());
 
         if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("missing-plan")) {
@@ -118,8 +107,6 @@ public class LoadPublisher extends Notifier {
         }
 
         JSONObject configObj = loadApi.retrieveConfig(getTestId());
-
-        String testrunname = getTestId();
         String testrunid = (String) configObj.get("testrunid");
 
         if (testrunname.equals("") ||  testrunid.equals("")) {
@@ -177,12 +164,48 @@ public class LoadPublisher extends Notifier {
 
         Thread.sleep(3 * 1000);
 
-        JSONArray labelsObj = loadApi.getLabels(testrunname, testrunid, apiKey);
+        JSONArray labelsArray = loadApi.getLabels(testrunname, testrunid, apiKey);
 
-        String label = labelsObj.getJSONObject(0).get("label").toString();
+        int countErrorFail = 0;
+        int countErrorUnstable = 0;
+        int countTimeFail = 0;
+        int countTimeUnstable = 0;
 
+        for (int i = 0; i < labelsArray.size(); i++) {
+            Map<String, Integer> countResponses;
+            String label = labelsArray.getJSONObject(i).get("label").toString();
+            countResponses = checkResultForLabels(loadApi, testrunname, testrunid, state, label, apiKey);
+
+            countErrorFail = countErrorFail + countResponses.get("countErrorFail");
+            countErrorUnstable = countErrorUnstable + countResponses.get("countErrorUnstable");
+            countTimeFail = countTimeFail + countResponses.get("countTimeFail");
+            countTimeUnstable = countTimeUnstable + countResponses.get("countTimeUnstable");
+        }
+
+        logInfo("View more details: " +  baseApiUri + "tests-print?testrunname="+ testrunname +"&testrunid="+ testrunid +"&apikey="+ apiKey);
+
+        if(countErrorFail > 0){
+            result = Result.FAILURE;
+        } else if(countErrorUnstable > 0){
+            result = Result.UNSTABLE;
+        } else if(countTimeFail > 0){
+            result = Result.FAILURE;
+        } else if(countTimeUnstable > 0){
+            result = Result.UNSTABLE;
+        }
+
+        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
+        build.getActions().add(action);
+        build.setResult(result);
+
+        Thread.sleep(2 * 1000);
+
+		return true;
+	}
+
+
+	private Map<String, Integer> checkResultForLabels(LoadAPI loadApi, String testrunname, String testrunid, JSONObject state, String label, String apiKey) throws UnsupportedEncodingException {
         JSONArray resultsFinalArray = loadApi.getResultsFinal(testrunname, testrunid, state, label, apiKey);
-
         JSONObject resultFinalObj = (JSONObject) resultsFinalArray.get(0);
 
         int countErrorFail = 0;
@@ -219,26 +242,15 @@ public class LoadPublisher extends Notifier {
             logInfo("Test Ended: Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
         }
 
-        logInfo("View more details: " +  baseApiUri + "tests-print?testrunname="+ testrunname +"&testrunid="+ testrunid +"&apikey="+ apiKey);
+        Map<String, Integer> countResponses = new HashMap<>();
+        countResponses.put("countErrorFail", countErrorFail);
+        countResponses.put("countErrorUnstable", countErrorUnstable);
+        countResponses.put("countTimeFail", countTimeFail);
+        countResponses.put("countTimeUnstable", countTimeUnstable);
 
-        if(countErrorFail > 0){
-            result = Result.FAILURE;
-        } else if(countErrorUnstable > 0){
-            result = Result.UNSTABLE;
-        } else if(countTimeFail > 0){
-            result = Result.FAILURE;
-        } else if(countTimeUnstable > 0){
-            result = Result.UNSTABLE;
-        }
+        return countResponses;
+    }
 
-        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
-        build.getActions().add(action);
-        build.setResult(result);
-
-        Thread.sleep(2 * 1000);
-
-		return true;
-	}
 
 	private void logInfo(String str) {
 		if (logger != null) {
