@@ -88,6 +88,35 @@ public class LoadPublisher extends Notifier {
 
 //        resultDetails = loadApi.runTest(getTestId());
         JSONObject resultObj = loadApi.runTest(getTestId());
+
+        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("missing-plan")) {
+            logInfo("Something went wrong, please try again.");
+            logInfo("View more details: " +  baseApiUri + "tests");
+            result = Result.NOT_BUILT;
+            return false;
+        }
+
+        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-test-parallel-exceeded")) {
+            logInfo("Number of parallel tests exceeded.");
+            logInfo("View more details: " +  baseApiUri + "tests");
+            result = Result.NOT_BUILT;
+            return false;
+        }
+
+        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-daily-tests-exceeded")) {
+            logInfo("Number of daily tests exceeded. Upgrade to unlock limits https://loadfocus.com/pricing.");
+            logInfo("View more details: " +  baseApiUri + "tests");
+            result = Result.NOT_BUILT;
+            return false;
+        }
+
+        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-yearly-tests-exceeded")) {
+            logInfo("Number of yearly tests exceeded. Upgrade to unlock limits https://loadfocus.com/pricing.");
+            logInfo("View more details: " +  baseApiUri + "tests");
+            result = Result.NOT_BUILT;
+            return false;
+        }
+
         JSONObject configObj = loadApi.retrieveConfig(getTestId());
 
         String testrunname = getTestId();
@@ -95,6 +124,7 @@ public class LoadPublisher extends Notifier {
 
         if (testrunname.equals("") ||  testrunid.equals("")) {
         	logInfo("Invalid test information");
+            logInfo("View more details: " +  baseApiUri + "tests");
         	result = Result.NOT_BUILT;
             return false;
         }
@@ -111,6 +141,7 @@ public class LoadPublisher extends Notifier {
 
             if(!testrunname.equalsIgnoreCase(testrunnameState) || !testrunid.equalsIgnoreCase(testrunidState)){
                 logInfo("APIs return invalid test results");
+                logInfo("View more details: " +  baseApiUri + "tests");
             	result = Result.NOT_BUILT;
                 return false;
             }
@@ -133,6 +164,7 @@ public class LoadPublisher extends Notifier {
         		if (lastPrint > 600000) {
         			logInfo("API doesn't return test results");
                 	result = Result.NOT_BUILT;
+                    logInfo("View more details: " +  baseApiUri + "tests");
                     return false;
         		} else {
         			lastPrint = lastPrint + interval;
@@ -217,36 +249,32 @@ public class LoadPublisher extends Notifier {
 	private Result validateParameters(PrintStream logger) {
         Result result = Result.SUCCESS;
         if (errorUnstableThreshold >= 0 && errorUnstableThreshold <= 100) {
-        	logInfo("Test Config: Errors percentage greater than or equal to "
-                    + errorUnstableThreshold + "% will be considered as "
-                    + Result.UNSTABLE.toString().toLowerCase());
+        	logInfo("Test Config: Build " + Result.UNSTABLE.toString() + " if errors percentage greater than or equal to "
+                    + errorUnstableThreshold + "%");
         } else {
         	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
             result = Result.NOT_BUILT;
         }
 
         if (errorFailedThreshold >= 0 && errorFailedThreshold <= 100) {
-        	logInfo("Test Config: Errors percentage greater than or equal to "
-                    + errorFailedThreshold + "% will be considered as "
-                    + Result.FAILURE.toString().toLowerCase());
+        	logInfo("Test Config: Build " + Result.FAILURE.toString() + " if errors percentage greater than or equal to "
+                    + errorFailedThreshold + "%");
         } else {
         	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
             result = Result.NOT_BUILT;
         }
 
         if (responseTimeUnstableThreshold >= 0) {
-        	logInfo("Test Config: Response time greater than or equal to "
-                    + responseTimeUnstableThreshold + "ms will be considered as "
-                    + Result.UNSTABLE.toString().toLowerCase());
+        	logInfo("Test Config: Build " + Result.UNSTABLE.toString() + " if response time greater than or equal to "
+                    + responseTimeUnstableThreshold + "ms");
         } else {
             logger.println("Test Config: ERROR! percentage should be greater than or equal to 0");
             result = Result.NOT_BUILT;
         }
 
         if (responseTimeFailedThreshold >= 0) {
-        	logInfo("Test Config: Response time greater than or equal to "
-                    + responseTimeFailedThreshold + "ms will be considered as "
-                    + Result.FAILURE.toString().toLowerCase());
+        	logInfo("Test Config: Build " + Result.FAILURE.toString() + " if response time greater than or equal to "
+                    + responseTimeFailedThreshold + "ms");
         } else {
         	logInfo("Test Config: ERROR! percentage should be greater than or equal to 0");
             result = Result.NOT_BUILT;

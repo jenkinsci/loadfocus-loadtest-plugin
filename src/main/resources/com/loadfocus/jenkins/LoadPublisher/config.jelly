@@ -19,13 +19,6 @@
       </f:select>
     </f:entry>
 
-    <f:entry title="${%More Details}:" field="testId">
-        <a href="https://loadfocus.com/tests" target="_blank">
-            ${%View All Tests}
-        </a>
-    </f:entry>
-
-
      <f:entry title="${%Error Percentage threshold}:"
              description="${%Mark the build as Passed if the percentage of all errors received is less then the UNSTABLE and FAILED Error Percentage thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
       <table width="450px">
@@ -33,7 +26,7 @@
           <tr>
             <td/>
             <td colspan="2">
-              <img src="${Errors percentage greaterrootURL}/images/16x16/yellow.gif" alt="yellow"/>
+              <img src="${rootURL}/images/16x16/yellow.gif" alt="yellow"/>
               ${%UNSTABLE}
             </td>
             <td colspan="2">

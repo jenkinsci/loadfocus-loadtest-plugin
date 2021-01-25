@@ -177,39 +177,6 @@ public class LoadAPI {
         return configs;
     }
 
-    public List<Map<String, String>> getTestSummaryResultAll(String testrunname, String testrunid, String location, String url, String testmachinedns) {
-        logger.println("in #getSummaryResult");
-        String result = doGetRequest("api/v1/loadtests/result/summaryResult?testrunname=" + testrunname + "&testrunid="  + testrunid + "&location=" + location + "&httprequest=" + url + "&testmachinedns=" + testmachinedns);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONArray resultList = (JSONArray) JSONSerializer.toJSON(result);
-        if (resultList == null) {
-            return null;
-        }
-        List<Map<String, String>> results = new ArrayList<>();
-
-        for (Object config : resultList) {
-            JSONObject t = (JSONObject) config;
-            String time = t.getString("time");
-            String errPercentTotal = t.getString("errPercentTotal");
-            String errTotal = t.getString("errTotal");
-            String hitsTotal = t.getString("hitsTotal");
-            String httprequest = t.getString("httprequest");
-            Map <String, String> m = new HashMap<String, String>();
-            m.put("time", time);
-            m.put("errPercentTotal", errPercentTotal);
-            m.put("errTotal", errTotal);
-            m.put("hitsTotal", hitsTotal);
-            m.put("httprequest", httprequest);
-            results.add(m);
-        }
-
-        return results;
-    }
-
     public JSONObject runTest(String testId) {
         logger.println("in #runTest");
         logger.println(baseApiUri);
