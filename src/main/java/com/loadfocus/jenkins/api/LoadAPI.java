@@ -266,8 +266,7 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-//            logger.format(new String(responseBody), "UTF-8");
-
+          
             return new String(responseBody, StandardCharsets.UTF_8);
 
         } catch (HttpException e) {
@@ -302,7 +301,6 @@ public class LoadAPI {
             }
 
             byte[] responseBody = method.getResponseBody();
-//            logger.format(new String(responseBody), "UTF-8");
 
             return new String(responseBody, StandardCharsets.UTF_8);
 
