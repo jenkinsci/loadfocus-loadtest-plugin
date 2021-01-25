@@ -35,6 +35,8 @@ public class LoadPublisher extends Notifier {
     private int responseTimeFailedThreshold = 0;
     private int responseTimeUnstableThreshold = 0;
     private PrintStream logger;
+    //    static final String baseApiUri = "https://loadfocus.com/";
+    static final String baseApiUri = "http://localhost:8065/";
 	
 	@DataBoundConstructor
     public LoadPublisher(String apiKey,
@@ -113,11 +115,22 @@ public class LoadPublisher extends Notifier {
                 return false;
             }
 
-            if (currentState.equalsIgnoreCase("initializing") || currentState.equalsIgnoreCase("hardware_build") || currentState.equalsIgnoreCase("provisioning")
-                    || currentState.equalsIgnoreCase("software_build") || currentState.equalsIgnoreCase("software_install") ||currentState.equalsIgnoreCase("pending_execution") || currentState.equalsIgnoreCase("running")) {
-        		    logInfo("Waiting for test results " + lastPrint + " sec");
+            if (currentState.equalsIgnoreCase("initializing") ||
+                currentState.equalsIgnoreCase("hardware_build") ||
+                currentState.equalsIgnoreCase("provisioning") ||
+                currentState.equalsIgnoreCase("software_build") ||
+                currentState.equalsIgnoreCase("software_install") ||
+                currentState.equalsIgnoreCase("pending_execution") ||
+                currentState.equalsIgnoreCase("running")
+            ) {
 
-        		if (lastPrint > 60000) {
+                if(!currentState.equalsIgnoreCase("running")) {
+                    logInfo("Test Starting: waiting for test to start " + lastPrint + " sec");
+                } else{
+                    logInfo("Test Running: waiting for test results " + lastPrint + " sec");
+                }
+
+        		if (lastPrint > 600000) {
         			logInfo("API doesn't return test results");
                 	result = Result.NOT_BUILT;
                     return false;
@@ -140,36 +153,10 @@ public class LoadPublisher extends Notifier {
 
         JSONObject resultFinalObj = (JSONObject) resultsFinalArray.get(0);
 
-//        List<Map<String, String>> results = new ArrayList<>();
-//        for (int i = 0; i < configs.size(); i++){
-//            String location = configs.get(i).get("location").toString();
-//            String httprequest = configs.get(i).get("httprequest").toString();
-//            String testmachinedns = configs.get(i).get("testmachinedns").toString();
-//
-//            List<Map<String, String>> summaryresults = loadApi.getTestSummaryResultAll(testrunname, testrunid, location, httprequest, testmachinedns);
-//
-//            for (int j = 0; j < summaryresults.size(); j++){
-//                Map<String, String> m = new HashedMap();
-//                String time = summaryresults.get(j).get("time").toString();
-//                String errPercentTotal = summaryresults.get(j).get("errPercentTotal").toString();
-//                String errTotal = summaryresults.get(j).get("errTotal").toString();
-//                String hitsTotal = summaryresults.get(j).get("hitsTotal").toString();
-//                String httprequestCurrent = summaryresults.get(j).get("httprequest").toString();
-//
-//                m.put("time", time);
-//                m.put("errPercentTotal", errPercentTotal);
-//                m.put("errTotal", errTotal);
-//                m.put("hitsTotal", hitsTotal);
-//                m.put("httprequest", httprequestCurrent);
-//                results.add(m);
-//            }
-//        }
-//
         int countErrorFail = 0;
         int countErrorUnstable = 0;
         int countTimeFail = 0;
         int countTimeUnstable = 0;
-
 
         double time = Double.parseDouble(resultFinalObj.get("mean").toString());
         double errPercentTotal = Double.parseDouble(resultFinalObj.get("ep").toString());
@@ -177,22 +164,30 @@ public class LoadPublisher extends Notifier {
 
         double thresholdTolerance = 0.00005;
 
+        logInfo("Test Results: response time " + time + " ms, error percentage " + errPercentTotal + "%, for " + httprequest + "." );
+
         if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
             countErrorFail++;
-            logInfo("Test ended with " + Result.FAILURE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
+            logInfo("Test Ended: Build " + Result.FAILURE + " on error percentage threshold for " + httprequest + ".");
+            logInfo("Test Ended: Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
         } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
             countErrorUnstable++;
-            logInfo("Test ended with " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
+            logInfo("Test Ended: Build " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ".");
+            logInfo("Test Ended: Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
         }
 
         if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
             countTimeFail++;
-            logInfo("Test ended with " + Result.FAILURE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
+            logInfo("Test Ended: Build " + Result.FAILURE + " on response time threshold for " + httprequest + ". ");
+            logInfo("Test Ended: Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
 
         } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
             countTimeUnstable++;
-            logInfo("Test ended with " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
+            logInfo("Test Ended: Build " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". ");
+            logInfo("Test Ended: Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
         }
+
+        logInfo("View more details: " +  baseApiUri + "tests-print?testrunname="+ testrunname +"&testrunid="+ testrunid +"&apikey="+ apiKey);
 
         if(countErrorFail > 0){
             result = Result.FAILURE;
@@ -222,38 +217,38 @@ public class LoadPublisher extends Notifier {
 	private Result validateParameters(PrintStream logger) {
         Result result = Result.SUCCESS;
         if (errorUnstableThreshold >= 0 && errorUnstableThreshold <= 100) {
-        	logInfo("Errors percentage greater than or equal to "
+        	logInfo("Test Config: Errors percentage greater than or equal to "
                     + errorUnstableThreshold + "% will be considered as "
                     + Result.UNSTABLE.toString().toLowerCase());
         } else {
-        	logInfo("ERROR! percentage should be between 0 to 100");
+        	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
             result = Result.NOT_BUILT;
         }
 
         if (errorFailedThreshold >= 0 && errorFailedThreshold <= 100) {
-        	logInfo("Errors percentage greater than or equal to "
+        	logInfo("Test Config: Errors percentage greater than or equal to "
                     + errorFailedThreshold + "% will be considered as "
                     + Result.FAILURE.toString().toLowerCase());
         } else {
-        	logInfo("ERROR! percentage should be between 0 to 100");
+        	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
             result = Result.NOT_BUILT;
         }
 
         if (responseTimeUnstableThreshold >= 0) {
-        	logInfo("Response time greater than or equal to "
-                    + responseTimeUnstableThreshold + "millis will be considered as "
+        	logInfo("Test Config: Response time greater than or equal to "
+                    + responseTimeUnstableThreshold + "ms will be considered as "
                     + Result.UNSTABLE.toString().toLowerCase());
         } else {
-            logger.println("ERROR! percentage should be greater than or equal to 0");
+            logger.println("Test Config: ERROR! percentage should be greater than or equal to 0");
             result = Result.NOT_BUILT;
         }
 
         if (responseTimeFailedThreshold >= 0) {
-        	logInfo("Response time greater than or equal to "
-                    + responseTimeFailedThreshold + "millis will be considered as "
+        	logInfo("Test Config: Response time greater than or equal to "
+                    + responseTimeFailedThreshold + "ms will be considered as "
                     + Result.FAILURE.toString().toLowerCase());
         } else {
-        	logInfo("ERROR! percentage should be greater than or equal to 0");
+        	logInfo("Test Config: ERROR! percentage should be greater than or equal to 0");
             result = Result.NOT_BUILT;
         }
         return result;
@@ -362,7 +357,7 @@ public class LoadPublisher extends Notifier {
 	                if (testList == null){
 	                    items.add("Invalid API key ", "-1");
 	                } else if (testList.isEmpty()){
-	                    items.add("No tests", "-1");
+	                    items.add("No tests - create at least one test", "-1");
 	                } else {
 	                    for (Map<String, String> test : testList) {
 	                        items.add(test.get("testrunname") + " #" + test.get("testrunid"), test.get("testrunname"));

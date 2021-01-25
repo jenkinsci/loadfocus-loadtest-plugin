@@ -79,7 +79,6 @@ public class LoadAPI {
 
     public boolean validateAPIKey(String path){
         String result = doGetRequest(path);
-//        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return false;
         }
@@ -94,7 +93,7 @@ public class LoadAPI {
 
     private JSONArray getListData(String path) {
         String result = doGetRequest(path);
-        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
+//        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
@@ -271,54 +270,6 @@ public class LoadAPI {
         jsonObject.accumulate("batchsize", 1);
         jsonObject.accumulate("granularity", "none");
 
-//        params.put("include[]", "timestamp");
-//        params.put("include[]", "mean");
-//        params.put("include[]", "median");
-//        params.put("include[]", "p90");
-//        params.put("include[]", "p95");
-//        params.put("include[]", "p99");
-//        params.put("include[]", "min");
-//        params.put("include[]", "max");
-//        params.put("include[]", "ep");
-//        params.put("include[]", "rt");
-
-
-//        testrunname: Oct_23_2020_4_09_PM
-//        testrunid: 2
-//        from: 1603466209897
-//        to: 1603466245752
-//        machinenumber: 1
-//        include[]: timestamp
-//        include[]: mean
-//        include[]: median
-//        include[]: p90
-//        include[]: p95
-//        include[]: p99
-//        include[]: min
-//        include[]: max
-//        include[]: ep
-//        include[]: rt
-//        include[]: l
-//        include[]: ct
-//        include[]: ec
-//        include[]: ecnt
-//        include[]: th
-//        include[]: kbrs
-//        include[]: kbss
-//        include[]: rc
-//        include[]: sd
-//        include[]: label
-//        include[]: url
-//        include[]: statscnt
-//        include[]: no
-//        include[]: rc
-//        filter[]: https://coursinator.com
-//        sortasc[]: timestamp
-//        sortdesc[]: no
-//        batchsize: 1
-//        skipsize: 0
-//        granularity: none
-
         String result = doPostRequest(path, jsonObject);
         logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
@@ -330,7 +281,6 @@ public class LoadAPI {
 
     private String doGetRequest(String path) {
         URI fullUri;
-        logger.println("doget" + baseApiUri);
         try {
             fullUri = new URI(baseApiUri + path);
         } catch (java.net.URISyntaxException ex) {

@@ -23,7 +23,7 @@
     </organization>
 
     <name>Load Testing LoadFocus.com Plugin</name>
-    <url>https://wiki.jenkins-ci.org/display/JENKINS/loadfocus</url>
+    <url>https://plugins.jenkins.io/loadfocus-loadtest/</url>
     <description>Cloud Load Testing for Websites and APIs with thousands of parallel connections - by LoadFocus.com
     </description>
 
