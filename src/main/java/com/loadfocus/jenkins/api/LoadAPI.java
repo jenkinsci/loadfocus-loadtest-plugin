@@ -29,8 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 public class LoadAPI {
-//    static final String baseApiUri = "https://loadfocus.com/";
-    static final String baseApiUri = "http://localhost:8065/";
+    static final String baseApiUri = "https://loadfocus.com/";
 
     PrintStream logger = System.out;
     String apiKey;
