@@ -249,23 +249,26 @@ public class LoadAPI {
         return resultBody;
     }
 
-    public JSONObject getResultsFinal(String testrunname, String testrunid, JSONObject state, String label, String apikey) throws UnsupportedEncodingException {
+    public JSONArray getResultsFinal(String testrunname, String testrunid, JSONObject state, String label, String apikey) throws UnsupportedEncodingException {
         logger.println("in #runTest");
         logger.println(baseApiUri);
 
         String path = "api/v1/loadtests/aggregate/results?apikey=" + apikey;
 
+        Long teststarttime = Long.parseLong(state.get("teststarttime").toString());
+        Long teststoptime = Long.parseLong(state.get("teststoptime").toString());
+
         JSONObject jsonObject = new JSONObject();
         jsonObject.accumulate("testrunname", testrunname);
         jsonObject.accumulate("testrunid", testrunid);
-        jsonObject.accumulate("from", state.get("teststarttime"));
-        jsonObject.accumulate("to",  state.get("teststoptime"));
+        jsonObject.accumulate("from", teststarttime);
+        jsonObject.accumulate("to",  teststoptime);
         jsonObject.accumulate("machinenumber", 1);
 
 
-        jsonObject.accumulate("filter[]", "https://coursinator.com");
+        jsonObject.accumulate("filter[]", label);
         jsonObject.accumulate("sortasc[]", "timestamp");
-        jsonObject.accumulate("batchsize", "1");
+        jsonObject.accumulate("batchsize", 1);
         jsonObject.accumulate("granularity", "none");
 
 //        params.put("include[]", "timestamp");
@@ -322,7 +325,7 @@ public class LoadAPI {
             return null;
         }
 
-        return (JSONObject) JSONSerializer.toJSON(result);
+        return (JSONArray) JSONSerializer.toJSON(result);
     }
 
     private String doGetRequest(String path) {

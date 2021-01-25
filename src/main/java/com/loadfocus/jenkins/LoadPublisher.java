@@ -136,9 +136,11 @@ public class LoadPublisher extends Notifier {
 
         String label = labelsObj.getJSONObject(0).get("label").toString();
 
-        JSONObject resultsFinalObj = loadApi.getResultsFinal(testrunname, testrunid, state, label, apiKey);
+        JSONArray resultsFinalArray = loadApi.getResultsFinal(testrunname, testrunid, state, label, apiKey);
 
-        List<Map<String, String>> results = new ArrayList<>();
+        JSONObject resultFinalObj = (JSONObject) resultsFinalArray.get(0);
+
+//        List<Map<String, String>> results = new ArrayList<>();
 //        for (int i = 0; i < configs.size(); i++){
 //            String location = configs.get(i).get("location").toString();
 //            String httprequest = configs.get(i).get("httprequest").toString();
@@ -163,58 +165,50 @@ public class LoadPublisher extends Notifier {
 //            }
 //        }
 //
-//        int countErrorFail = 0;
-//        int countErrorUnstable = 0;
-//        int countTimeFail = 0;
-//        int countTimeUnstable = 0;
-//
-//        for (int k = 0; k < results.size(); k++){
-//
-//            double time = Double.parseDouble(results.get(k).get("time").toString());
-//            double errPercentTotal = Double.parseDouble(results.get(k).get("errPercentTotal").toString());
-//            double errTotal = Double.parseDouble(results.get(k).get("errTotal").toString());
-//            double hitsTotal = Double.parseDouble(results.get(k).get("hitsTotal").toString());
-//            String httprequest = results.get(k).get("httprequest").toString();
-//
-//            double thresholdTolerance = 0.00005;
-//
-//            if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
-//                countErrorFail++;
-//                logInfo("Test ended with " + Result.FAILURE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
-//            } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
-//                countErrorUnstable++;
-//                logInfo("Test ended with " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
-//            }
-//
-//            if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
-//                countTimeFail++;
-//                logInfo("Test ended with " + Result.FAILURE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
-//
-//            } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
-//                countTimeUnstable++;
-//                logInfo("Test ended with " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
-//            }
-//        }
-//
-//        if(countErrorFail > 0){
-//            result = Result.FAILURE;
-//        } else if(countErrorUnstable > 0){
-//            result = Result.UNSTABLE;
-//        } else if(countTimeFail > 0){
-//            result = Result.FAILURE;
-//        } else if(countTimeUnstable > 0){
-//            result = Result.UNSTABLE;
-//        }
-//
-////
-//        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
-//        build.getActions().add(action);
-//        build.setResult(result);
-
-        Thread.sleep(5 * 1000);
+        int countErrorFail = 0;
+        int countErrorUnstable = 0;
+        int countTimeFail = 0;
+        int countTimeUnstable = 0;
 
 
+        double time = Double.parseDouble(resultFinalObj.get("mean").toString());
+        double errPercentTotal = Double.parseDouble(resultFinalObj.get("ep").toString());
+        String httprequest =resultFinalObj.get("url").toString();
 
+        double thresholdTolerance = 0.00005;
+
+        if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
+            countErrorFail++;
+            logInfo("Test ended with " + Result.FAILURE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
+        } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
+            countErrorUnstable++;
+            logInfo("Test ended with " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ". Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
+        }
+
+        if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
+            countTimeFail++;
+            logInfo("Test ended with " + Result.FAILURE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
+
+        } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
+            countTimeUnstable++;
+            logInfo("Test ended with " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
+        }
+
+        if(countErrorFail > 0){
+            result = Result.FAILURE;
+        } else if(countErrorUnstable > 0){
+            result = Result.UNSTABLE;
+        } else if(countTimeFail > 0){
+            result = Result.FAILURE;
+        } else if(countTimeUnstable > 0){
+            result = Result.UNSTABLE;
+        }
+
+        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
+        build.getActions().add(action);
+        build.setResult(result);
+
+        Thread.sleep(2 * 1000);
 
 		return true;
 	}
