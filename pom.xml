@@ -94,6 +94,28 @@
                     <failOnError>${maven.findbugs.failure.strict}</failOnError>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <!-- Disable the default-test by putting it in phase none -->
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <!-- Enable the test during integration-test phase -->
+                        <id>surefire-it</id>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                        <phase>integration-test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
