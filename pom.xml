@@ -78,13 +78,6 @@
     <build>
         <plugins>
             <plugin>
-                <groupId>org.jenkins-ci.tools</groupId>
-                <artifactId>maven-hpi-plugin</artifactId>
-                <configuration>
-                    <disabledTestInjection>true</disabledTestInjection>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
@@ -93,80 +86,15 @@
                     <detectJavaApiLink>false</detectJavaApiLink>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>findbugs-maven-plugin</artifactId>
+                <version>3.0.4</version>
+                <configuration>
+                    <failOnError>${maven.findbugs.failure.strict}</failOnError>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
-
-<!--    <profiles>-->
-<!--        <profile>-->
-<!--            <id>doclint-java8-disable</id>-->
-<!--            <activation>-->
-<!--                <jdk>[1.8,)</jdk>-->
-<!--            </activation>-->
-<!--            <build>-->
-<!--                <plugins>-->
-<!--                    <plugin>-->
-<!--                        <groupId>org.apache.maven.plugins</groupId>-->
-<!--                        <artifactId>maven-javadoc-plugin</artifactId>-->
-<!--                        <version>3.2.0</version>-->
-<!--                        <configuration>-->
-<!--                            <doclint>none</doclint>-->
-<!--                        </configuration>-->
-<!--                    </plugin>-->
-<!--                    <plugin>-->
-<!--                        <groupId>org.apache.maven.plugins</groupId>-->
-<!--                        <artifactId>maven-site-plugin</artifactId>-->
-<!--                        <version>3.3</version>-->
-<!--                        <configuration>-->
-<!--                            <reportPlugins>-->
-<!--                                <plugin>-->
-<!--                                    <groupId>org.apache.maven.plugins</groupId>-->
-<!--                                    <artifactId>maven-javadoc-plugin</artifactId>-->
-<!--                                    <configuration>-->
-<!--                                        <additionalparam>-Xdoclint:none</additionalparam>-->
-<!--                                    </configuration>-->
-<!--                                </plugin>-->
-<!--                            </reportPlugins>-->
-<!--                        </configuration>-->
-<!--                    </plugin>-->
-<!--                </plugins>-->
-<!--            </build>-->
-<!--        </profile>-->
-<!--    </profiles>-->
-<!--    <build>-->
-<!--        <plugins>-->
-<!--            <plugin>-->
-<!--                <groupId>org.apache.maven.plugins</groupId>-->
-<!--                <artifactId>maven-javadoc-plugin</artifactId>-->
-<!--                <version>3.2.0</version>-->
-<!--                <executions>-->
-<!--                    <execution>-->
-<!--                        <id>attach-javadocs</id>-->
-<!--                        <goals>-->
-<!--                            <goal>jar</goal>-->
-<!--                        </goals>-->
-<!--                        <configuration>-->
-<!--                            <doclint>none</doclint>-->
-<!--                        </configuration>-->
-<!--                    </execution>-->
-<!--                </executions>-->
-<!--            </plugin>-->
-<!--            <plugin>-->
-<!--                <groupId>org.apache.maven.plugins</groupId>-->
-<!--                <artifactId>maven-site-plugin</artifactId>-->
-<!--                <version>3.3</version>-->
-<!--                <configuration>-->
-<!--                    <reportPlugins>-->
-<!--                        <plugin>-->
-<!--                            <groupId>org.apache.maven.plugins</groupId>-->
-<!--                            <artifactId>maven-javadoc-plugin</artifactId>-->
-<!--                            <configuration>-->
-<!--                                <doclint>none</doclint>-->
-<!--                            </configuration>-->
-<!--                        </plugin>-->
-<!--                    </reportPlugins>-->
-<!--                </configuration>-->
-<!--            </plugin>-->
-<!--        </plugins>-->
-<!--    </build>-->
 
 </project>
