@@ -27,7 +27,7 @@
         <url>https://loadfocus.com</url>
     </organization>
 
-    <name>Load Testing LoadFocus.com Plugin</name>
+    <name>Load Testing CI/CD Plugin by LoadFocus</name>
     <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
     <description>Load Testing CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs provided by LoadFocus.
     </description>

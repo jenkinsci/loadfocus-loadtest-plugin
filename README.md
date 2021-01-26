@@ -5,7 +5,7 @@
      alt="cloud testing tool" width="220"></a>
 </p>
 
-Load Testing CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs
+[Load Testing](https://loadfocus.com/load-testing) CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs
  provided by <a href="https://loadfocus.com">LoadFocus</a>. 
  
 Helps you run load tests as a Post-build Action marking the Build as Passed, Unstable or Failed based on:
@@ -44,8 +44,6 @@ With **Load Testing CI/CD plugin** you can run load test with thousands of paral
 ### Usage
 How to use LoadFocus Load Testing Plugin for Post-build load tests:
 * Note: All Completed load tests from your [LoadFocus](https://loadfocus.com) account will be available in the plugin.
-
-<details><summary><b>Steps</b></summary>
 
 1. Create a New Job or Configure an exiting one. 
 2. In the Post-build Section, look for the **Load Testing by LoadFocus.com** option and select the checkbox. See the screenshot below:
@@ -92,5 +90,3 @@ How to use LoadFocus Load Testing Plugin for Post-build load tests:
 <img src="https://d2woeiihr4s5r6.cloudfront.net/jenkins/whitelabel-reports-test-print.jpeg"
   alt="Load Testing CI/CD Plugin PDF report"
  height="389"></p>
- 
-</details>
