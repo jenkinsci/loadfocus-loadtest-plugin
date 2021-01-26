@@ -1,6 +1,12 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <developers>
+        <developer>
+            <id>bogdan</id>
+            <name>Bogdan Vazzolla</name>
+        </developer>
+    </developers>
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
@@ -22,8 +28,8 @@
     </organization>
 
     <name>Load Testing LoadFocus.com Plugin</name>
-    <url>https://plugins.jenkins.io/loadfocus-loadtest/</url>
-    <description>Cloud Load Testing for Websites and APIs with thousands of parallel connections - by LoadFocus.com
+    <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
+    <description>Load Testing CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs provided by LoadFocus.
     </description>
 
     <dependencies>
