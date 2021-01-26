@@ -61,31 +61,35 @@ How to use LoadFocus Load Testing Plugin for Post-build load tests:
  height="289"></p>
     * View the Console output and monitor the progress of your running load tests during job's Post build actions.
     * View the complete load test report of the LoadFocus.com when the job has finished.
+    3. or a more flexible `.size-limit.js` config file:
+    
+    ```js
+       loadfocus.com: Test Started: Jan_19_2021_11_35_AM
+       loadfocus.com: Test Config: Build UNSTABLE if errors percentage greater than or equal to 3%
+       loadfocus.com: Test Config: Build FAILURE if errors percentage greater than or equal to 5%
+       loadfocus.com: Test Config: Build UNSTABLE if response time greater than or equal to 500ms
+       loadfocus.com: Test Config: Build FAILURE if response time greater than or equal to 1000ms
+       loadfocus.com: Test Starting: waiting for test to start 0 sec
+       loadfocus.com: Test Starting: waiting for test to start 5 sec
+       loadfocus.com: Test Starting: waiting for test to start 10 sec
+       loadfocus.com: Test Starting: waiting for test to start 15 sec
+       loadfocus.com: Test Starting: waiting for test to start 20 sec
+       loadfocus.com: Test Starting: waiting for test to start 25 sec
+       loadfocus.com: Test Starting: waiting for test to start 30 sec
+       loadfocus.com: Test Starting: waiting for test to start 35 sec
+       loadfocus.com: Test Running: waiting for test results 40 sec
+       loadfocus.com: Test Running: waiting for test results 45 sec
+       loadfocus.com: Test Running: waiting for test results 50 sec
+       loadfocus.com: Test Running: waiting for test results 55 sec
+       loadfocus.com: Test Results: response time 59.667 ms, error percentage 0.0%, for https://example.com/. 
     ```
-   loadfocus.com: Test Started: Jan_19_2021_11_35_AM
-   loadfocus.com: Test Config: Build UNSTABLE if errors percentage greater than or equal to 3%
-   loadfocus.com: Test Config: Build FAILURE if errors percentage greater than or equal to 5%
-   loadfocus.com: Test Config: Build UNSTABLE if response time greater than or equal to 500ms
-   loadfocus.com: Test Config: Build FAILURE if response time greater than or equal to 1000ms
-   loadfocus.com: Test Starting: waiting for test to start 0 sec
-   loadfocus.com: Test Starting: waiting for test to start 5 sec
-   loadfocus.com: Test Starting: waiting for test to start 10 sec
-   loadfocus.com: Test Starting: waiting for test to start 15 sec
-   loadfocus.com: Test Starting: waiting for test to start 20 sec
-   loadfocus.com: Test Starting: waiting for test to start 25 sec
-   loadfocus.com: Test Starting: waiting for test to start 30 sec
-   loadfocus.com: Test Starting: waiting for test to start 35 sec
-   loadfocus.com: Test Running: waiting for test results 40 sec
-   loadfocus.com: Test Running: waiting for test results 45 sec
-   loadfocus.com: Test Running: waiting for test results 50 sec
-   loadfocus.com: Test Running: waiting for test results 55 sec
-   loadfocus.com: Test Results: response time 59.667 ms, error percentage 0.0%, for https://example.com/. 
-   ```
-5. View the load test report
+ 
+### Load Test Results & Reports  
+1. View the load test report
 <p align="center"><img src="https://d2woeiihr4s5r6.cloudfront.net/jenkins/whitelabel-reports-test-presets-loadfocus.jpeg"
   alt="Load Testing CI/CD Plugin Whitelabel Results"
  height="389"></p>
-6. Print the load test report to a PDF file
+2. Print the load test report to a PDF file
 <p align="center">
 <img src="https://d2woeiihr4s5r6.cloudfront.net/jenkins/whitelabel-reports-test-print.jpeg"
   alt="Load Testing CI/CD Plugin PDF report"
