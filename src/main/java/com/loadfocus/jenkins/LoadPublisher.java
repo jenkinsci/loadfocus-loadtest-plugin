@@ -4,6 +4,7 @@ import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.loadfocus.jenkins.api.LoadAPI;
 import hudson.Extension;
 import hudson.Launcher;
+import hudson.Util;
 import hudson.model.*;
 import hudson.security.ACL;
 import hudson.tasks.BuildStepDescriptor;
@@ -22,6 +23,7 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.Stapler;
 import org.kohsuke.stapler.StaplerRequest;
 
+import javax.servlet.ServletException;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
@@ -52,10 +54,10 @@ public class LoadPublisher extends Notifier {
         this.responseTimeUnstableThreshold = responseTimeUnstableThreshold;
         this.testId = testId;
     }
-	
+
 	@Override
     public boolean perform(AbstractBuild build, Launcher launcher,
-            BuildListener listener) throws InterruptedException, IOException {
+        BuildListener listener) throws InterruptedException, IOException {
 		logger = listener.getLogger();
         Result result;
         String session;
@@ -238,7 +240,7 @@ public class LoadPublisher extends Notifier {
         } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
             countTimeUnstable++;
             logInfo("Test Ended: Build " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". ");
-            logInfo("Test Ended: Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold);
+            logInfo("Test Ended: Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold + " ms");
         }
 
         Map<String, Integer> countResponses = new HashMap<>();
@@ -368,6 +370,62 @@ public class LoadPublisher extends Notifier {
         public LoadPerformancePublisherDescriptor() {
             super(LoadPublisher.class);
             load();
+        }
+
+        public FormValidation doCheckErrorUnstableThreshold(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                int errorPercentageUnstable = Integer.parseInt(value);
+                if (Util.fixEmptyAndTrim(value) == null) {
+                    return FormValidation.error("Value cannot be empty");
+                }
+                if (errorPercentageUnstable>100) {
+                    return FormValidation.error("Value should be in this range: 0 - 100");
+                } else {
+                    return FormValidation.ok();
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Not a number");
+            }
+        }
+
+        public FormValidation doCheckErrorFailedThreshold(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                int errorPercentageUnstable = Integer.parseInt(value);
+                if (Util.fixEmptyAndTrim(value) == null) {
+                    return FormValidation.error("Value cannot be empty");
+                }
+                if (errorPercentageUnstable>100) {
+                    return FormValidation.error("Value should be in this range: 0 - 100");
+                } else {
+                    return FormValidation.ok();
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Not a number");
+            }
+        }
+
+        public FormValidation doCheckResponseTimeUnstableThreshold(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                if (Util.fixEmptyAndTrim(value) == null) {
+                    return FormValidation.error("Value cannot be empty");
+                } else {
+                    return FormValidation.ok();
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Not a number");
+            }
+        }
+
+        public FormValidation doCheckResponseTimeFailedThreshold(@QueryParameter String value) throws IOException, ServletException {
+            try {
+                if (Util.fixEmptyAndTrim(value) == null) {
+                    return FormValidation.error("Value cannot be empty");
+                } else {
+                    return FormValidation.ok();
+                }
+            } catch (NumberFormatException e) {
+                return FormValidation.error("Not a number");
+            }
         }
 
      // Used by config.jelly to display the test list.

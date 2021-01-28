@@ -21,31 +21,19 @@
 
      <f:entry title="${%Error Percentage threshold}:"
              description="${%Mark the build as Passed if the percentage of all errors received is less then the UNSTABLE and FAILED Error Percentage thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
-      <table width="450px">
-        <thead>
-          <tr>
-            <td/>
-            <td colspan="2">
-              <img src="${rootURL}/images/16x16/yellow.gif" alt="yellow"/>
-              ${%UNSTABLE}
-            </td>
-            <td colspan="2">
-              <img src="${rootURL}/images/16x16/red.gif" alt="red"/>
-              ${%FAILED}
-            </td>
-          </tr>
-        </thead>
+      <table width="500px">
         <tbody>
           <tr>
-            <td style="vertical-align:middle">${%Errors Percentage}:</td>
-            <td>
-              <f:textbox field="errorUnstableThreshold"/>
+            <td style="vertical-align:middle">
+                <f:entry title="UNSTABLE (%)" field="errorUnstableThreshold">
+                    <f:textbox />
+                </f:entry>
             </td>
-            <td>%</td>
-            <td>
-              <f:textbox field="errorFailedThreshold"/>
+            <td style="vertical-align:middle">
+                <f:entry title="FAILED (%)" field="errorFailedThreshold">
+                    <f:textbox />
+                </f:entry>
             </td>
-            <td>%</td>
           </tr>
         </tbody>
       </table>
@@ -56,31 +44,19 @@
 
     <f:entry title="${%Response Time threshold}:"
              description="${%Mark the build as Passed if the average response time received is less then the UNSTABLE and FAILED Time thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
-    <table width="450px">
-      <thead>
-        <tr>
-        <td/>
-        <td colspan="2">
-          <img src="${rootURL}/images/16x16/yellow.gif" alt="yellow"/>
-          ${%UNSTABLE}
-        </td>
-        <td colspan="2">
-          <img src="${rootURL}/images/16x16/red.gif" alt="red"/>
-          ${%FAILED}
-        </td>
-        </tr>
-      </thead>
+    <table width="500px">
       <tbody>
         <tr>
-          <td style="vertical-align:middle">${%Response Time}:</td>
-          <td>
-            <f:textbox field="responseTimeUnstableThreshold"/>
-          </td>
-          <td>ms</td>
-          <td>
-            <f:textbox field="responseTimeFailedThreshold"/>
-          </td>
-          <td>ms</td>
+            <td style="vertical-align:middle">
+                <f:entry title="UNSTABLE (ms)" field="responseTimeUnstableThreshold">
+                    <f:textbox />
+                </f:entry>
+            </td>
+            <td style="vertical-align:middle; color: #0F0F0F">
+                <f:entry title="FAILED (ms)" field="responseTimeFailedThreshold">
+                    <f:textbox />
+                </f:entry>
+            </td>
         </tr>
       </tbody>
     </table>
