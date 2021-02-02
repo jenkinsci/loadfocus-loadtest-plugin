@@ -1,5 +1,6 @@
 package com.loadfocus.jenkins.api;
 
+import com.google.gson.Gson;
 import net.sf.json.JSON;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
@@ -9,19 +10,24 @@ import org.apache.commons.httpclient.HttpException;
 import org.apache.commons.httpclient.HttpStatus;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.http.Consts;
 import org.apache.http.HttpEntity;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,7 +35,8 @@ import java.util.List;
 import java.util.Map;
 
 public class LoadAPI {
-    static final String baseApiUri = "https://loadfocus.com/";
+//    static final String baseApiUri = "https://loadfocus.com/";
+    static final String baseApiUri = "http://localhost:8065/";
 
     PrintStream logger = System.out;
     String apiKey;
@@ -197,13 +204,12 @@ public class LoadAPI {
         logger.println("in #runTest");
         logger.println(baseApiUri);
 
-        String path = "api/v1/loadtests/labels?apikey=" + apikey;
+        String path = "api/v1/loadtests/labels-noform?apikey=" + apikey;
 
         JSONObject jsonObject = new JSONObject();
         jsonObject.accumulate("testrunname", testrunname);
         jsonObject.accumulate("testrunid", testrunid);
-
-        String result = doPostRequest(path, jsonObject);
+        String result = doPostRequest(path, jsonObject, "application/x-www-form-urlencoded");
         logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
@@ -218,16 +224,13 @@ public class LoadAPI {
         logger.println("in #runTest");
         logger.println(baseApiUri);
 
-        String path = "api/v1/loadtests/aggregate/results?apikey=" + apikey;
-
-        Long teststarttime = Long.parseLong(state.get("teststarttime").toString());
-        Long teststoptime = Long.parseLong(state.get("teststoptime").toString());
+        String path = "api/v1/loadtests/aggregate/results-noform?apikey=" + apikey;
 
         JSONObject jsonObject = new JSONObject();
         jsonObject.accumulate("testrunname", testrunname);
         jsonObject.accumulate("testrunid", testrunid);
-        jsonObject.accumulate("from", teststarttime);
-        jsonObject.accumulate("to",  teststoptime);
+        jsonObject.accumulate("teststarttime", state.get("teststarttime").toString());
+        jsonObject.accumulate("teststoptime",  state.get("teststoptime").toString());
         jsonObject.accumulate("machinenumber", 1);
 
 
@@ -236,8 +239,8 @@ public class LoadAPI {
         jsonObject.accumulate("batchsize", 1);
         jsonObject.accumulate("granularity", "none");
 
-        String result = doPostRequest(path, jsonObject);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
+        String result = doPostRequest(path, jsonObject, "application/x-www-form-urlencoded");
+//        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
         if (result.equalsIgnoreCase("NOTRUNNING")) {
             return null;
         }
@@ -256,7 +259,8 @@ public class LoadAPI {
         HttpClient client = new HttpClient();
 
         GetMethod method = new GetMethod(fullUri.toString());
-        method.addRequestHeader("Content-Type", "application/json");
+        method.addRequestHeader("accept", "application/json");
+        method.addRequestHeader("content-type", "application/json");
         method.addRequestHeader("loadfocus-auth", apiKey);
 
         try {
@@ -348,5 +352,58 @@ public class LoadAPI {
             logger.format("Fatal transport error: " + e.getMessage());
             return null;
         }
+    }
+
+    private String doPostRequest(String path, JSONObject jsonObject, String contentType) throws UnsupportedEncodingException {
+        URI fullUri;
+        try {
+            fullUri = new URI(baseApiUri + path);
+        } catch (java.net.URISyntaxException ex) {
+            throw new RuntimeException("Incorrect URI format: %s", ex);
+        }
+
+        CloseableHttpClient httpclient = HttpClients.createDefault();
+
+        HashMap<String, Object> paramsFromJSON = new Gson().fromJson(jsonObject.toString(), HashMap.class);
+
+        List<NameValuePair> formparams = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : paramsFromJSON.entrySet()) {
+            formparams.add(new BasicNameValuePair(entry.getKey(), entry.getValue().toString()));
+        }
+
+        UrlEncodedFormEntity requestEntity = new UrlEncodedFormEntity(formparams, Consts.UTF_8);
+
+        HttpPost httpPost = new HttpPost(fullUri.toString());
+        httpPost.addHeader("Content-Type", contentType);
+        httpPost.addHeader("loadfocus-auth", apiKey);
+        httpPost.setEntity(requestEntity);
+
+        try {
+            CloseableHttpResponse response = httpclient.execute(httpPost);
+            HttpEntity entity = response.getEntity();
+            String result = EntityUtils.toString(entity);
+            return result;
+        } catch (HttpException e) {
+            logger.format("Fatal protocol violation: " + e.getMessage());
+            return null;
+        } catch (IOException e) {
+            logger.format("Fatal transport error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private String getDataString(HashMap<String, String> params) throws UnsupportedEncodingException{
+        StringBuilder result = new StringBuilder();
+        boolean first = true;
+        for(Map.Entry<String, String> entry : params.entrySet()){
+            if (first)
+                first = false;
+            else
+                result.append("&");
+            result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
+            result.append("=");
+            result.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
+        }
+        return result.toString();
     }
 }

@@ -1,26 +1,12 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <developers>
-        <developer>
-            <id>bogdan</id>
-            <name>Bogdan Vazzolla</name>
-        </developer>
-    </developers>
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>2.3</version>
+        <version>4.10</version>
+        <relativePath />
     </parent>
-    <properties>
-        <jenkins.version>2.19.4</jenkins.version>
-        <hpi-plugin.version>1.106</hpi-plugin.version>
-    </properties>
-
-    <groupId>com.loadfocus</groupId>
-    <artifactId>loadfocus-loadtest</artifactId>
-    <version>1.1.4-SNAPSHOT</version>
-    <packaging>hpi</packaging>
 
     <organization>
         <name>LoadFocus.com</name>
@@ -29,8 +15,25 @@
 
     <name>Load Testing CI/CD Plugin by LoadFocus</name>
     <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
-    <description>Load Testing CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs provided by LoadFocus.
-    </description>
+    <description>Load Testing CI/CD plugin is a Jenkins plugin for running load tests continuously for Websites and APIs provided by LoadFocus.</description>
+
+    <developers>
+        <developer>
+            <id>Bogdan Vazzolla</id>
+            <name>Bogdan Vazzolla</name>
+        </developer>
+    </developers>
+
+    <properties>
+        <java.level>8</java.level>
+        <jenkins.version>2.249.3</jenkins.version>
+        <hpi-plugin.version>2.1</hpi-plugin.version>
+    </properties>
+
+    <groupId>com.loadfocus</groupId>
+    <artifactId>loadfocus-loadtest</artifactId>
+    <version>1.1.4-SNAPSHOT</version>
+    <packaging>hpi</packaging>
 
     <dependencies>
         <dependency>
@@ -51,27 +54,83 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>credentials</artifactId>
-            <version>2.1.16</version>
+            <version>2.3.13</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.3.1</version>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>jdk8</id>
+            <properties>
+                <javadoc.flag>none</javadoc.flag>
+            </properties>
+            <activation>
+                <jdk>[1.8,)</jdk>
+            </activation>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <doclint>${javadoc.flag}</doclint>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-test</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>surefire-it</id>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                        <phase>integration-test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <scm>
+        <connection>scm:git:ssh://github.com/jenkinsci/loadfocus-loadtest-plugin.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/jenkinsci/loadfocus-loadtest-plugin.git</developerConnection>
+        <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
+        <tag>loadfocus-loadtest-1.1.1</tag>
+    </scm>
+
     <licenses>
         <license>
-            <name>MIT license</name>
-            <comments>All source code is under the MIT license.</comments>
+            <name>MIT License</name>
+            <url>http://opensource.org/licenses/MIT</url>
         </license>
     </licenses>
 
     <repositories>
         <repository>
             <id>repo.jenkins-ci.org</id>
-            <url>http://repo.jenkins-ci.org/public/</url>
+            <url>https://repo.jenkins-ci.org/public/</url>
         </repository>
     </repositories>
-
     <pluginRepositories>
         <pluginRepository>
             <id>repo.jenkins-ci.org</id>
-            <url>http://repo.jenkins-ci.org/public/</url>
+            <url>https://repo.jenkins-ci.org/public/</url>
         </pluginRepository>
     </pluginRepositories>
 
@@ -87,56 +146,5 @@
             <url>https://repo.jenkins-ci.org/snapshots</url>
         </snapshotRepository>
     </distributionManagement>
-
-    <scm>
-        <connection>scm:git:ssh://github.com/jenkinsci/loadfocus-loadtest-plugin.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/jenkinsci/loadfocus-loadtest-plugin.git</developerConnection>
-        <url>https://github.com/jenkinsci/loadfocus-loadtest-plugin</url>
-      <tag>loadfocus-loadtest-1.1.1</tag>
-  </scm>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <configuration>
-                    <source>11</source>
-                    <additionalparam>-Xdoclint:none</additionalparam>
-                    <detectJavaApiLink>false</detectJavaApiLink>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>findbugs-maven-plugin</artifactId>
-                <version>3.0.4</version>
-                <configuration>
-                    <failOnError>${maven.findbugs.failure.strict}</failOnError>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-test</id>
-                        <!-- Disable the default-test by putting it in phase none -->
-                        <phase>none</phase>
-                    </execution>
-                    <execution>
-                        <!-- Enable the test during integration-test phase -->
-                        <id>surefire-it</id>
-                        <configuration>
-                            <skip>true</skip>
-                        </configuration>
-                        <phase>integration-test</phase>
-                        <goals>
-                            <goal>test</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
 
 </project>
