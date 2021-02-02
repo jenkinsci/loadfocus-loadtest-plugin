@@ -16,8 +16,6 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
@@ -316,41 +314,6 @@ public class LoadAPI {
         }
 
         return "NOTRUNNING";
-    }
-
-    private String doPostRequest(String path, JSONObject jsonObject) throws UnsupportedEncodingException {
-        URI fullUri;
-        try {
-            fullUri = new URI(baseApiUri + path);
-        } catch (java.net.URISyntaxException ex) {
-            throw new RuntimeException("Incorrect URI format: %s", ex);
-        }
-
-        CloseableHttpClient httpclient = HttpClients.createDefault();
-
-        String JSON_STRING = jsonObject.toString();
-
-        StringEntity requestEntity = new StringEntity(
-                JSON_STRING,
-                ContentType.APPLICATION_JSON);
-
-        HttpPost httpPost = new HttpPost(fullUri.toString());
-        httpPost.addHeader("Content-Type", "application/json");
-        httpPost.addHeader("loadfocus-auth", apiKey);
-        httpPost.setEntity(requestEntity);
-
-        try {
-            CloseableHttpResponse response = httpclient.execute(httpPost);
-            HttpEntity entity = response.getEntity();
-            String result = EntityUtils.toString(entity);
-            return result;
-        } catch (HttpException e) {
-            logger.format("Fatal protocol violation: " + e.getMessage());
-            return null;
-        } catch (IOException e) {
-            logger.format("Fatal transport error: " + e.getMessage());
-            return null;
-        }
     }
 
     private String doPostRequest(String path, JSONObject jsonObject, String contentType) throws UnsupportedEncodingException {
