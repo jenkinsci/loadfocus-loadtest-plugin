@@ -38,8 +38,7 @@ public class LoadPublisher extends Notifier {
     private int responseTimeFailedThreshold = 0;
     private int responseTimeUnstableThreshold = 0;
     private PrintStream logger;
-//    static final String baseApiUri = "https://loadfocus.com/";
-    static final String baseApiUri = "http://localhost:8065/";
+    static final String baseApiUri = "https://loadfocus.com/";
 
 	@DataBoundConstructor
     public LoadPublisher(String apiKey,
