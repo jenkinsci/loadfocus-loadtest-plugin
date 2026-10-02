@@ -1,3 +1,4 @@
+<?jelly escape-by-default='true'?>
 <j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define"
          xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
 
@@ -7,12 +8,9 @@
       </a>
     </f:entry>
     
-    <j:set var="keys" value="${descriptor.getCredentials(it)}"/>
-    <j:if test="${keys.size() &gt; 1}">
-      <f:entry title="${%API Key}" field="apiKey">
-        <f:select style="width:32em;"/>
-      </f:entry>
-    </j:if>
+    <f:entry title="${%API Key}" field="apiKey">
+      <f:select style="width:32em;"/>
+    </f:entry>
     
     <f:entry title="${%Test Name}:" field="testId">
       <f:select>
@@ -20,7 +18,7 @@
     </f:entry>
 
      <f:entry title="${%Error Percentage threshold}:"
-             description="${%Mark the build as Passed if the percentage of all errors received is less then the UNSTABLE and FAILED Error Percentage thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
+             description="${%Checked per request. The build is marked UNSTABLE or FAILED when a request's error percentage is greater than the threshold. Leave empty to skip.}">
       <table width="500px">
         <tbody>
           <tr>
@@ -43,7 +41,7 @@
     </f:entry>
 
     <f:entry title="${%Response Time threshold}:"
-             description="${%Mark the build as Passed if the average response time received is less then the UNSTABLE and FAILED Time thresholds. Otherwise mark the build UNSTABLE or FAILED accordingly.}">
+             description="${%Checked per request. The build is marked UNSTABLE or FAILED when a request's average response time is greater than the threshold. Leave empty to skip.}">
     <table width="500px">
       <tbody>
         <tr>
@@ -61,4 +59,30 @@
       </tbody>
     </table>
     </f:entry>
+
+    <f:entry title="${%Use LoadFocus verdict}" field="useVerdict">
+      <f:checkbox/>
+    </f:entry>
+
+    <f:section title="${%LoadFocus thresholds, saved to the test on loadfocus.com}">
+      <f:entry title="${%P95 response time, ms}" field="p95Ms"><f:number/></f:entry>
+      <f:entry title="${%P99 response time, ms}" field="p99Ms"><f:number/></f:entry>
+      <f:entry title="${%Error rate, %}" field="errorRatePct"><f:number step="any"/></f:entry>
+      <f:entry title="${%Minimum throughput, req/s}" field="minRps"><f:number step="any"/></f:entry>
+    </f:section>
+
+    <f:advanced>
+      <f:entry title="${%Tag the run with this build}" field="tagRun">
+        <f:checkbox default="true"/>
+      </f:entry>
+      <f:entry title="${%Run tag}" field="releaseTag">
+        <f:textbox/>
+      </f:entry>
+      <f:entry title="${%Timeout, minutes}" field="timeoutMinutes">
+        <f:number default="120" min="1"/>
+      </f:entry>
+      <f:entry title="${%Create public share link}" field="shareReport">
+        <f:checkbox/>
+      </f:entry>
+    </f:advanced>
 </j:jelly>

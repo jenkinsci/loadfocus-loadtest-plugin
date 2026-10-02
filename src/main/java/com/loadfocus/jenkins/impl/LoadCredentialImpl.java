@@ -6,13 +6,13 @@ import com.loadfocus.jenkins.api.LoadAPI;
 import hudson.Extension;
 import hudson.util.FormValidation;
 import hudson.util.Secret;
-import net.sf.json.JSONException;
+import com.cloudbees.plugins.credentials.CredentialsProvider;
+import hudson.model.Item;
+import jenkins.model.Jenkins;
+import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
-
-import javax.mail.MessagingException;
-import javax.servlet.ServletException;
-import java.io.IOException;
+import org.kohsuke.stapler.verb.POST;
 
 
 public class LoadCredentialImpl extends AbstractCredential {
@@ -41,15 +41,23 @@ public class LoadCredentialImpl extends AbstractCredential {
             return Messages.LoadCredential_DisplayName();
         }
 
-        public FormValidation doTestConnection(@QueryParameter("apiKey") final String apiKey) throws MessagingException, IOException, JSONException, ServletException {
-        	return checkLoadKey(apiKey);
-        }
-        
-        public FormValidation doTestExistingConnection(@QueryParameter("apiKey") final Secret apiKey) throws MessagingException, IOException, JSONException, ServletException {
+        @POST
+        public FormValidation doTestConnection(@AncestorInPath Item context, @QueryParameter("apiKey") final Secret apiKey) {
+            // Folder-scoped credentials are managed from the folder, so check there rather than globally.
+            if (context != null) {
+                context.checkAnyPermission(CredentialsProvider.CREATE, CredentialsProvider.UPDATE);
+            } else {
+                Jenkins.get().checkAnyPermission(CredentialsProvider.CREATE, CredentialsProvider.UPDATE);
+            }
             return checkLoadKey(apiKey.getPlainText());
         }
-        
-        private FormValidation checkLoadKey(final String apiKey) throws JSONException, IOException, ServletException {
+
+        @POST
+        public FormValidation doTestExistingConnection(@AncestorInPath Item context, @QueryParameter("apiKey") final Secret apiKey) {
+            return doTestConnection(context, apiKey);
+        }
+
+        private FormValidation checkLoadKey(final String apiKey) {
         	LoadAPI ldr = new LoadAPI(apiKey);
             if (ldr.isValidApiKey()) {
                 return FormValidation.okWithMarkup("Valid API Key");

@@ -1,0 +1,4 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<com.loadfocus.jenkins.LoadPublisher_-LoadPerformancePublisherDescriptor plugin="loadfocus-loadtest@1.1.5">
+  <apiKey>lfke...abcdef</apiKey>
+</com.loadfocus.jenkins.LoadPublisher_-LoadPerformancePublisherDescriptor>

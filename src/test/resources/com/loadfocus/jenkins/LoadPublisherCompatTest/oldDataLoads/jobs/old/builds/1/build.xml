@@ -1,0 +1,25 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<build>
+  <actions>
+    <com.loadfocus.jenkins.LoadBuildAction plugin="loadfocus-loadtest@1.1.5">
+      <build class="build" reference="../../.."/>
+      <testrunid>5</testrunid>
+      <testrunname>checkout</testrunname>
+      <apikey>lfkey-0123456789abcdef</apikey>
+    </com.loadfocus.jenkins.LoadBuildAction>
+  </actions>
+  <queueId>1</queueId>
+  <timestamp>1612260000000</timestamp>
+  <startTime>1612260000001</startTime>
+  <result>SUCCESS</result>
+  <duration>60000</duration>
+  <charset>UTF-8</charset>
+  <keepLog>false</keepLog>
+  <builtOn></builtOn>
+  <workspace>/tmp/ws</workspace>
+  <hudsonVersion>2.249.3</hudsonVersion>
+  <scm class="hudson.scm.NullChangeLogParser"/>
+  <culprits class="java.util.Collections$UnmodifiableSet">
+    <c class="sorted-set"/>
+  </culprits>
+</build>

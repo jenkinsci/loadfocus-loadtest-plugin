@@ -1,11 +1,20 @@
 package com.loadfocus.jenkins;
 
 import com.cloudbees.plugins.credentials.CredentialsProvider;
+import com.cloudbees.plugins.credentials.domains.DomainRequirement;
 import com.loadfocus.jenkins.api.LoadAPI;
+import com.loadfocus.jenkins.api.LoadAPIException;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import hudson.AbortException;
+import hudson.EnvVars;
 import hudson.Extension;
-import hudson.Launcher;
 import hudson.Util;
-import hudson.model.*;
+import hudson.model.AbstractProject;
+import hudson.model.Item;
+import hudson.model.Job;
+import hudson.model.Result;
+import hudson.model.Run;
+import hudson.model.TaskListener;
 import hudson.security.ACL;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.BuildStepMonitor;
@@ -15,325 +24,580 @@ import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import hudson.util.Secret;
 import jenkins.model.Jenkins;
+import jenkins.tasks.SimpleBuildStep;
 import net.sf.json.JSONArray;
 import net.sf.json.JSONObject;
-import org.apache.commons.lang.StringUtils;
+import org.jenkinsci.plugins.plaincredentials.StringCredentials;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
+import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
-import org.kohsuke.stapler.Stapler;
-import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
+import org.kohsuke.stapler.verb.POST;
 
-import javax.servlet.ServletException;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-public class LoadPublisher extends Notifier {
-	private String apiKey;
-	private String testId = "";
-	private String testName = "";
-    private int errorFailedThreshold = 0;
-    private int errorUnstableThreshold = 0;
-    private int responseTimeFailedThreshold = 0;
-    private int responseTimeUnstableThreshold = 0;
-    private PrintStream logger;
-    static final String baseApiUri = "https://loadfocus.com/";
+/**
+ * Runs a LoadFocus cloud load test and marks the build from its results.
+ * Freestyle: post-build action. Pipeline: {@link LoadFocusStep} ({@code loadfocusLoadTest}).
+ */
+public class LoadPublisher extends Notifier implements SimpleBuildStep {
+    static final int DEFAULT_TIMEOUT_MINUTES = 120;
+    /** Run states that end a run; anything else is still starting or running. */
+    static final Set<String> FAILED_STATES = new HashSet<>(Arrays.asList(
+            "aborted", "error", "finished_failed_to_run", "finished_failed_timeout", "stopped"));
+    static final String FINISHED = "finished";
 
-	@DataBoundConstructor
-    public LoadPublisher(String apiKey,
-                         String testId,
-                         int errorFailedThreshold,
-                         int errorUnstableThreshold,
-                         int responseTimeFailedThreshold,
-                         int responseTimeUnstableThreshold) {
-        this.apiKey = apiKey;
-        this.errorFailedThreshold = errorFailedThreshold;
-        this.errorUnstableThreshold = errorUnstableThreshold;
-        this.responseTimeFailedThreshold = responseTimeFailedThreshold;
-        this.responseTimeUnstableThreshold = responseTimeUnstableThreshold;
-        this.testId = testId;
-    }
+    // Overridable by tests only.
+    @Restricted(NoExternalUse.class) static String baseUrl = LoadAPI.DEFAULT_BASE_URL;
+    @Restricted(NoExternalUse.class) static long pollMillis = 5_000;
+    @Restricted(NoExternalUse.class) static long minuteMillis = 60_000;
+    @Restricted(NoExternalUse.class) static int resultAttempts = 18;
+    /** Consecutive transient API failures (5xx, 429, network) tolerated before giving up: ~5 min at 5 s. */
+    @Restricted(NoExternalUse.class) static int maxTransientFailures = 60;
 
-	@Override
-    public boolean perform(AbstractBuild build, Launcher launcher,
-        BuildListener listener) throws InterruptedException, IOException {
-		logger = listener.getLogger();
-        Result result;
-        String session;
-        String testrunname = getTestId();
-        logInfo("Test Started: " + testrunname);
-        if ((result = validateParameters(logger)) != Result.SUCCESS) {
-            return true;
-        }
-        String apiKeyId = StringUtils.defaultIfEmpty(getApiKey(), getDescriptor().getApiKey());
-        String apiKey = null;
-        for (LoadCredential c : CredentialsProvider
-                .lookupCredentials(LoadCredential.class, build.getProject(), ACL.SYSTEM)) {
-            if (StringUtils.equals(apiKeyId, c.getId())) {
-                apiKey = c.getApiKey().getPlainText();
-                break;
-            }
-        }
-        
-        LoadAPI loadApi = new LoadAPI(apiKey);
-        JSONObject resultObj = loadApi.runTest(getTestId());
+    private String apiKey;
+    private String testId = "";
+    private String testName;
+    // -1 = threshold not used. Builds saved by 1.1.x always stored explicit values (0 = any error fails).
+    private int errorFailedThreshold = -1;
+    private int errorUnstableThreshold = -1;
+    private int responseTimeFailedThreshold = -1;
+    private int responseTimeUnstableThreshold = -1;
+    private boolean useVerdict;
+    private int timeoutMinutes = DEFAULT_TIMEOUT_MINUTES;
+    private boolean shareReport;
+    // null on jobs saved before 1.2 and on new jobs alike: tagging is on unless explicitly disabled.
+    private Boolean tagRun;
+    private String releaseTag;
+    // Thresholds saved to the test on loadfocus.com before the run (null = not managed from Jenkins).
+    private Integer p95Ms;
+    private Integer p99Ms;
+    private Double errorRatePct;
+    private Double minRps;
 
-        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("missing-plan")) {
-            logInfo("Something went wrong, please try again.");
-            logInfo("View more details: " +  baseApiUri + "tests");
-            result = Result.NOT_BUILT;
-            return false;
-        }
-
-        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-test-parallel-exceeded")) {
-            logInfo("Number of parallel tests exceeded.");
-            logInfo("View more details: " +  baseApiUri + "tests");
-            result = Result.NOT_BUILT;
-            return false;
-        }
-
-        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-daily-tests-exceeded")) {
-            logInfo("Number of daily tests exceeded. Upgrade to unlock limits https://loadfocus.com/pricing.");
-            logInfo("View more details: " +  baseApiUri + "tests");
-            result = Result.NOT_BUILT;
-            return false;
-        }
-
-        if(resultObj != null && resultObj.get("error") != null && resultObj.get("error").toString().equalsIgnoreCase("number-of-yearly-tests-exceeded")) {
-            logInfo("Number of yearly tests exceeded. Upgrade to unlock limits https://loadfocus.com/pricing.");
-            logInfo("View more details: " +  baseApiUri + "tests");
-            result = Result.NOT_BUILT;
-            return false;
-        }
-
-        JSONObject configObj = loadApi.retrieveConfig(getTestId());
-        String testrunid = (String) configObj.get("testrunid");
-
-        if (testrunname.equals("") ||  testrunid.equals("")) {
-        	logInfo("Invalid test information");
-            logInfo("View more details: " +  baseApiUri + "tests");
-        	result = Result.NOT_BUILT;
-            return false;
-        }
-
-        int lastPrint = 0;
-        int interval = 5;
-        JSONObject state;
-        while (true) {
-            state = loadApi.getState(testrunname, testrunid);
-
-            String testrunnameState = state.get("testrunname").toString();
-            String testrunidState = state.get("testrunid").toString();
-            String currentState = state.get("state").toString();
-
-            if(!testrunname.equalsIgnoreCase(testrunnameState) || !testrunid.equalsIgnoreCase(testrunidState)){
-                logInfo("APIs return invalid test results");
-                logInfo("View more details: " +  baseApiUri + "tests");
-            	result = Result.NOT_BUILT;
-                return false;
-            }
-
-            if (currentState.equalsIgnoreCase("initializing") ||
-                currentState.equalsIgnoreCase("hardware_build") ||
-                currentState.equalsIgnoreCase("provisioning") ||
-                currentState.equalsIgnoreCase("software_build") ||
-                currentState.equalsIgnoreCase("software_install") ||
-                currentState.equalsIgnoreCase("pending_execution") ||
-                currentState.equalsIgnoreCase("running")
-            ) {
-
-                if(!currentState.equalsIgnoreCase("running")) {
-                    logInfo("Test Starting: waiting for test to start " + lastPrint + " sec");
-                } else{
-                    logInfo("Test Running: waiting for test results " + lastPrint + " sec");
-                }
-
-        		if (lastPrint > 600000) {
-        			logInfo("API doesn't return test results");
-                	result = Result.NOT_BUILT;
-                    logInfo("View more details: " +  baseApiUri + "tests");
-                    return false;
-        		} else {
-        			lastPrint = lastPrint + interval;
-        			Thread.sleep(interval * 1000);
-        		}
-        	} else {
-        		break;
-        	}
-        }
-
-        Thread.sleep(3 * 1000);
-
-        JSONArray labelsArray = loadApi.getLabels(testrunname, testrunid, apiKey);
-
-        int countErrorFail = 0;
-        int countErrorUnstable = 0;
-        int countTimeFail = 0;
-        int countTimeUnstable = 0;
-
-        for (int i = 0; i < labelsArray.size(); i++) {
-            Map<String, Integer> countResponses;
-            String label = labelsArray.getJSONObject(i).get("label").toString();
-            countResponses = checkResultForLabels(loadApi, testrunname, testrunid, state, label, apiKey);
-
-            countErrorFail = countErrorFail + countResponses.get("countErrorFail");
-            countErrorUnstable = countErrorUnstable + countResponses.get("countErrorUnstable");
-            countTimeFail = countTimeFail + countResponses.get("countTimeFail");
-            countTimeUnstable = countTimeUnstable + countResponses.get("countTimeUnstable");
-        }
-
-        logInfo("View more details: " +  baseApiUri + "tests-print?testrunname="+ testrunname +"&testrunid="+ testrunid +"&apikey="+ apiKey);
-
-        if(countErrorFail > 0){
-            result = Result.FAILURE;
-        } else if(countErrorUnstable > 0){
-            result = Result.UNSTABLE;
-        } else if(countTimeFail > 0){
-            result = Result.FAILURE;
-        } else if(countTimeUnstable > 0){
-            result = Result.UNSTABLE;
-        }
-
-        LoadBuildAction action = new LoadBuildAction(build, testrunname, testrunid, apiKey);
-        build.getActions().add(action);
-        build.setResult(result);
-
-        Thread.sleep(2 * 1000);
-
-		return true;
-	}
-
-
-	private Map<String, Integer> checkResultForLabels(LoadAPI loadApi, String testrunname, String testrunid, JSONObject state, String label, String apiKey) throws UnsupportedEncodingException {
-        JSONArray resultsFinalArray = loadApi.getResultsFinal(testrunname, testrunid, state, label, apiKey);
-        JSONObject resultFinalObj = (JSONObject) resultsFinalArray.get(0);
-
-        int countErrorFail = 0;
-        int countErrorUnstable = 0;
-        int countTimeFail = 0;
-        int countTimeUnstable = 0;
-
-        double time = Double.parseDouble(resultFinalObj.get("mean").toString());
-        double errPercentTotal = Double.parseDouble(resultFinalObj.get("ep").toString());
-        String httprequest =resultFinalObj.get("url").toString();
-
-        double thresholdTolerance = 0.00005;
-
-        logInfo("Test Results: response time " + time + " ms, error percentage " + errPercentTotal + "%, for " + httprequest + "." );
-
-        if (errorFailedThreshold >= 0 && errPercentTotal - errorFailedThreshold > thresholdTolerance) {
-            countErrorFail++;
-            logInfo("Test Ended: Build " + Result.FAILURE + " on error percentage threshold for " + httprequest + ".");
-            logInfo("Test Ended: Error percentage was " + errPercentTotal + "%, build FAILED if error percentage is greater than Failed Threshold of " + errorFailedThreshold + "%");
-        } else if (errorUnstableThreshold >= 0 && errPercentTotal - errorUnstableThreshold > thresholdTolerance) {
-            countErrorUnstable++;
-            logInfo("Test Ended: Build " + Result.UNSTABLE + " on error percentage threshold for " + httprequest + ".");
-            logInfo("Test Ended: Error percentage was " + errPercentTotal + "%, build UNSTABLE if error percentage is greater than Unstable Threshold of " + errorUnstableThreshold + "%" + " but smaller than Failed Threshold of " + errorFailedThreshold + " %");
-        }
-
-        if (responseTimeFailedThreshold >= 0 && time - responseTimeFailedThreshold > thresholdTolerance) {
-            countTimeFail++;
-            logInfo("Test Ended: Build " + Result.FAILURE + " on response time threshold for " + httprequest + ". ");
-            logInfo("Test Ended: Time was " + time + "ms, build FAILED if time is greater than Failed Threshold of " + responseTimeFailedThreshold + " ms");
-
-        } else if (responseTimeUnstableThreshold >= 0 && time - responseTimeUnstableThreshold > thresholdTolerance) {
-            countTimeUnstable++;
-            logInfo("Test Ended: Build " + Result.UNSTABLE + " on response time threshold for " + httprequest + ". ");
-            logInfo("Test Ended: Time was " + time + "ms, build UNSTABLE if time is greater than Unstable Threshold of " + responseTimeUnstableThreshold + " ms" + " but smaller than Failed Threshold of " + responseTimeFailedThreshold + " ms");
-        }
-
-        Map<String, Integer> countResponses = new HashMap<>();
-        countResponses.put("countErrorFail", countErrorFail);
-        countResponses.put("countErrorUnstable", countErrorUnstable);
-        countResponses.put("countTimeFail", countTimeFail);
-        countResponses.put("countTimeUnstable", countTimeUnstable);
-
-        return countResponses;
-    }
-
-
-	private void logInfo(String str) {
-		if (logger != null) {
-			logger.println("loadfocus.com: " + str);
-		}
-	}
-
-	private Result validateParameters(PrintStream logger) {
+    /** What a run produced; returned to Pipeline scripts by {@link LoadFocusStep}. */
+    static final class Outcome {
+        String testrunname;
+        String testrunid;
         Result result = Result.SUCCESS;
-        if (errorUnstableThreshold >= 0 && errorUnstableThreshold <= 100) {
-        	logInfo("Test Config: Build " + Result.UNSTABLE.toString() + " if errors percentage greater than or equal to "
-                    + errorUnstableThreshold + "%");
-        } else {
-        	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
-            result = Result.NOT_BUILT;
-        }
+        String verdict;
+        String reportUrl;
+        final Map<String, Object> metrics = new LinkedHashMap<>();
 
-        if (errorFailedThreshold >= 0 && errorFailedThreshold <= 100) {
-        	logInfo("Test Config: Build " + Result.FAILURE.toString() + " if errors percentage greater than or equal to "
-                    + errorFailedThreshold + "%");
-        } else {
-        	logInfo("Test Config: ERROR! percentage should be between 0 to 100");
-            result = Result.NOT_BUILT;
+        Map<String, Object> toMap() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("testrunname", testrunname);
+            m.put("testrunid", testrunid);
+            m.put("result", result.toString());
+            m.put("verdict", verdict);
+            m.put("reportUrl", reportUrl);
+            m.put("metrics", new LinkedHashMap<>(metrics));
+            return m;
         }
+    }
 
-        if (responseTimeUnstableThreshold >= 0) {
-        	logInfo("Test Config: Build " + Result.UNSTABLE.toString() + " if response time greater than or equal to "
-                    + responseTimeUnstableThreshold + "ms");
-        } else {
-            logger.println("Test Config: ERROR! percentage should be greater than or equal to 0");
-            result = Result.NOT_BUILT;
+    @DataBoundConstructor
+    public LoadPublisher(String testId) {
+        this.testId = Util.fixNull(testId).trim();
+    }
+
+    @Override
+    public boolean requiresWorkspace() {
+        return false;
+    }
+
+    @Override
+    public void perform(@NonNull Run<?, ?> run, @NonNull EnvVars env, @NonNull TaskListener listener)
+            throws InterruptedException, IOException {
+        Outcome o = runTest(run, env, listener);
+        if (o.result.isWorseThan(Result.SUCCESS)) {
+            info(listener.getLogger(), "Marking build " + o.result);
+            run.setResult(o.result);
         }
+    }
 
-        if (responseTimeFailedThreshold >= 0) {
-        	logInfo("Test Config: Build " + Result.FAILURE.toString() + " if response time greater than or equal to "
-                    + responseTimeFailedThreshold + "ms");
-        } else {
-        	logInfo("Test Config: ERROR! percentage should be greater than or equal to 0");
-            result = Result.NOT_BUILT;
+    /**
+     * Launches the test, waits for it and evaluates it. Throws AbortException on any FAILURE, after
+     * recording the results link, so a Pipeline stops at this gate and catchError can handle it.
+     */
+    Outcome runTest(Run<?, ?> run, EnvVars env, TaskListener listener) throws InterruptedException, IOException {
+        PrintStream log = listener.getLogger();
+        String testrunname = env.expand(testId);
+        if (testrunname.isEmpty() || "-1".equals(testrunname)) {
+            throw new AbortException(prefix("no LoadFocus test selected (testId)"));
+        }
+        validateThresholds();
+
+        String key = resolveApiKey(run);
+        if (key == null) {
+            // The credential id embeds part of the key, so it is not printed.
+            throw new AbortException(prefix(Util.fixEmpty(apiKey) != null
+                    ? "the selected LoadFocus API key credential was not found or is not available to this job"
+                    : "no LoadFocus API key credential selected and no default key configured. Add one under Manage Jenkins > Credentials"));
+        }
+        LoadAPI api = new LoadAPI(baseUrl, key);
+
+        String testrunid = null;
+        String resultsUrl = null;
+        Outcome out = new Outcome();
+        out.testrunname = testrunname;
+        try {
+            info(log, "Test: " + testrunname);
+            logConfig(log);
+
+            Map<String, Number> server = serverThresholds();
+            if (!server.isEmpty()) {
+                api.putThresholds(testrunname, server);
+                info(log, "Thresholds saved to the test on LoadFocus: " + server);
+            }
+
+            String previousRunId = api.latestRunId(testrunname);
+            LoadAPI.ExecuteResult exec = api.execute(testrunname);
+            if (!exec.started) {
+                throw new AbortException(prefix("test did not start: " + describeError(exec.error)));
+            }
+            testrunid = api.latestRunId(testrunname);
+            if (!isNextRun(previousRunId, testrunid)) {
+                throw new AbortException(prefix(testrunid.equals(previousRunId)
+                        ? "test was accepted but no new run appeared (latest run is still #" + previousRunId + "); not evaluating an older run"
+                        : "another run of this test started at the same time (expected run #" + nextRunId(previousRunId)
+                                + ", latest is #" + testrunid + "); cannot tell which run belongs to this build"));
+            }
+            out.testrunid = testrunid;
+            resultsUrl = api.resultsUrl(testrunname, testrunid);
+            info(log, "Run #" + testrunid + " started: " + resultsUrl);
+            if (isTagRun()) {
+                tag(api, log, run, env, testrunname, testrunid);
+            }
+
+            waitForRun(api, log, testrunname, testrunid);
+
+            Result result = Result.SUCCESS;
+            String verdict = null;
+            if (hasLocalThresholds()) {
+                result = result.combine(checkLocalThresholds(api, log, testrunname, testrunid, out));
+            }
+            if (isVerdictUsed()) {
+                JSONObject v = fetchVerdict(api, log, testrunname, testrunid);
+                verdict = v.optString("verdict", "none");
+                result = result.combine(checkVerdict(log, v));
+                JSONObject m = v.optJSONObject("metrics");
+                if (m != null && !m.isNullObject()) {
+                    putMetric(out, "p95Ms", m.opt("p95Ms"));
+                    putMetric(out, "p99Ms", m.opt("p99Ms"));
+                    putMetric(out, "errorRatePct", m.opt("errorRatePct"));
+                    putMetric(out, "rps", m.opt("rps"));
+                    putMetric(out, "samples", m.opt("samples"));
+                }
+            }
+
+            String reportUrl = resultsUrl;
+            if (shareReport) {
+                try {
+                    String shared = api.createShareLink(testrunname, testrunid);
+                    if (shared != null) {
+                        reportUrl = shared;
+                        info(log, "Share link: " + shared);
+                    }
+                } catch (LoadAPIException e) {
+                    info(log, "Share link not created: " + e.getMessage());
+                }
+            }
+
+            run.addAction(new LoadBuildAction(testrunname, testrunid, reportUrl, verdict));
+            info(log, "Results: " + resultsUrl);
+            if (result.isWorseThan(Result.UNSTABLE)) {
+                // Throw so a Pipeline stops here (a gate) and catchError can handle it.
+                throw new AbortException(prefix("load test failed its thresholds; marking build " + result));
+            }
+            out.result = result;
+            out.verdict = verdict;
+            out.reportUrl = reportUrl;
+            return out;
+        } catch (LoadAPIException e) {
+            throw new AbortException(prefix(e.getMessage()));
+        } catch (InterruptedException e) {
+            if (testrunid != null) {
+                info(log, "Build aborted. LoadFocus run #" + testrunid + " keeps running until it finishes: " + resultsUrl);
+            }
+            throw e;
+        }
+    }
+
+    private void tag(LoadAPI api, PrintStream log, Run<?, ?> run, EnvVars env, String testrunname, String testrunid)
+            throws InterruptedException {
+        String label = Util.fixEmptyAndTrim(env.expand(Util.fixNull(releaseTag)));
+        if (label == null) {
+            label = "Jenkins " + run.getFullDisplayName();
+        }
+        String root = Jenkins.get().getRootUrl();
+        String url = root == null ? null : root + run.getUrl();
+        try {
+            api.annotateRun(testrunname, testrunid, label, url);
+            info(log, "Run #" + testrunid + " tagged \"" + label + "\"");
+        } catch (IOException | LoadAPIException e) {
+            info(log, "Run not tagged (" + e.getMessage() + "); continuing");
+        }
+    }
+
+    private static void putMetric(Outcome out, String key, Object value) {
+        if (value instanceof Number) {
+            out.metrics.put(key, value);
+        }
+    }
+
+    Map<String, Number> serverThresholds() {
+        Map<String, Number> m = new LinkedHashMap<>();
+        if (p95Ms != null) {
+            m.put("p95Ms", p95Ms);
+        }
+        if (p99Ms != null) {
+            m.put("p99Ms", p99Ms);
+        }
+        if (errorRatePct != null) {
+            m.put("errorRatePct", errorRatePct);
+        }
+        if (minRps != null) {
+            m.put("minRps", minRps);
+        }
+        return m;
+    }
+
+    /** Thresholds managed from Jenkins are only useful if the verdict is checked. */
+    private boolean isVerdictUsed() {
+        return useVerdict || !serverThresholds().isEmpty();
+    }
+
+    static boolean isNextRun(String previousRunId, String testrunid) {
+        try {
+            return Long.parseLong(testrunid) == Long.parseLong(nextRunId(previousRunId));
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static String nextRunId(String previousRunId) {
+        try {
+            return String.valueOf((previousRunId == null || previousRunId.isEmpty() ? 0 : Long.parseLong(previousRunId)) + 1);
+        } catch (NumberFormatException e) {
+            return "?";
+        }
+    }
+
+    interface ApiCall<T> {
+        T call() throws IOException, InterruptedException, LoadAPIException;
+    }
+
+    /** Retries network errors, 5xx (e.g. the maintenance page during a LoadFocus deploy) and 429 until a cap or deadline. */
+    private static <T> T withRetry(PrintStream log, long deadline, ApiCall<T> call)
+            throws IOException, InterruptedException, LoadAPIException {
+        int failures = 0;
+        while (true) {
+            String reason;
+            try {
+                return call.call();
+            } catch (LoadAPIException e) {
+                if (!e.isTransient()) {
+                    throw e;
+                }
+                reason = e.getMessage();
+                if (++failures >= maxTransientFailures || System.currentTimeMillis() > deadline) {
+                    throw e;
+                }
+            } catch (IOException e) {
+                reason = "network error: " + e.getMessage();
+                if (++failures >= maxTransientFailures || System.currentTimeMillis() > deadline) {
+                    throw new AbortException(prefix("LoadFocus API unreachable: " + e.getMessage()));
+                }
+            }
+            if (failures == 1) {
+                info(log, "LoadFocus API temporarily unavailable (" + reason + "), retrying");
+            }
+            Thread.sleep(pollMillis);
+        }
+    }
+
+    private void waitForRun(LoadAPI api, PrintStream log, String testrunname, String testrunid)
+            throws IOException, InterruptedException, LoadAPIException {
+        int timeout = timeoutMinutes > 0 ? timeoutMinutes : DEFAULT_TIMEOUT_MINUTES;
+        long deadline = System.currentTimeMillis() + timeout * minuteMillis;
+        String lastState = null;
+        long started = System.currentTimeMillis();
+        int emptyStates = 0;
+        while (true) {
+            JSONObject state = withRetry(log, deadline, () -> api.getState(testrunname, testrunid));
+            String current = state.optString("state", "");
+            emptyStates = current.isEmpty() ? emptyStates + 1 : 0;
+            if (emptyStates >= maxTransientFailures) {
+                throw new AbortException(prefix("LoadFocus reports no state for run #" + testrunid + "; giving up"));
+            }
+            if (FINISHED.equalsIgnoreCase(current)) {
+                info(log, "Run #" + testrunid + " finished");
+                return;
+            }
+            if (FAILED_STATES.contains(current.toLowerCase())) {
+                throw new AbortException(prefix("run #" + testrunid + " ended with state '" + current + "'"));
+            }
+            if (!current.equals(lastState)) {
+                long sec = (System.currentTimeMillis() - started) / 1000;
+                info(log, "Run state: " + (current.isEmpty() ? "waiting" : current) + " (" + sec + "s)");
+                lastState = current;
+            }
+            if (System.currentTimeMillis() > deadline) {
+                throw new AbortException(prefix("run #" + testrunid + " did not finish within " + timeout + " minutes (last state '" + current + "')"));
+            }
+            Thread.sleep(pollMillis);
+        }
+    }
+
+    private Result checkLocalThresholds(LoadAPI api, PrintStream log, String testrunname, String testrunid, Outcome out)
+            throws IOException, InterruptedException, LoadAPIException {
+        long deadline = System.currentTimeMillis() + 10 * minuteMillis;
+        JSONObject analysis = null;
+        for (int i = 0; i < resultAttempts && analysis == null; i++) {
+            analysis = withRetry(log, deadline, () -> api.getAnalysis(testrunname, testrunid));
+            if (analysis == null) {
+                Thread.sleep(pollMillis);
+            }
+        }
+        if (analysis == null) {
+            throw new AbortException(prefix("no results available for run #" + testrunid));
+        }
+        JSONObject overall = analysis.optJSONObject("overall");
+        if (overall != null && !overall.isNullObject()) {
+            putMetric(out, "meanMs", overall.opt("mean"));
+            putMetric(out, "p95Ms", overall.opt("p95"));
+            putMetric(out, "p99Ms", overall.opt("p99"));
+            putMetric(out, "errorRatePct", overall.opt("errorPct"));
+            putMetric(out, "rps", overall.opt("rps"));
+        }
+        JSONArray labels = analysis.optJSONArray("labels");
+        if (labels == null || labels.isEmpty()) {
+            throw new AbortException(prefix("run #" + testrunid + " has no per-request results to check"));
+        }
+        Result result = Result.SUCCESS;
+        for (Object o : labels) {
+            JSONObject l = (JSONObject) o;
+            String label = l.optString("label", "?");
+            double mean = l.optDouble("mean", Double.NaN);
+            double errorPct = l.optDouble("errorPct", 0);
+            info(log, "Result: " + label + ": average response time " + mean + " ms, errors " + errorPct + "%");
+            result = result.combine(grade(log, label, "error percentage", errorPct, "%", errorUnstableThreshold, errorFailedThreshold));
+            if (!Double.isNaN(mean)) {
+                result = result.combine(grade(log, label, "average response time", mean, " ms", responseTimeUnstableThreshold, responseTimeFailedThreshold));
+            }
         }
         return result;
-	}
+    }
 
-	public BuildStepMonitor getRequiredMonitorService() {
-		return BuildStepMonitor.BUILD;
-	}
+    private static Result grade(PrintStream log, String label, String metric, double actual, String unit, int unstable, int failed) {
+        if (failed >= 0 && actual > failed) {
+            info(log, "FAILURE: " + label + ": " + metric + " " + actual + unit + " is greater than " + failed + unit);
+            return Result.FAILURE;
+        }
+        if (unstable >= 0 && actual > unstable) {
+            info(log, "UNSTABLE: " + label + ": " + metric + " " + actual + unit + " is greater than " + unstable + unit);
+            return Result.UNSTABLE;
+        }
+        return Result.SUCCESS;
+    }
 
-	public String getApiKey() {
+    private JSONObject fetchVerdict(LoadAPI api, PrintStream log, String testrunname, String testrunid)
+            throws IOException, InterruptedException, LoadAPIException {
+        long deadline = System.currentTimeMillis() + 10 * minuteMillis;
+        JSONObject v = null;
+        for (int i = 0; i < resultAttempts; i++) {
+            v = withRetry(log, deadline, () -> api.getVerdict(testrunname, testrunid));
+            if (!v.optBoolean("enabled") || v.optBoolean("metricsAvailable")) {
+                return v;
+            }
+            Thread.sleep(pollMillis);
+        }
+        return v;
+    }
+
+    static Result checkVerdict(PrintStream log, JSONObject v) {
+        String verdict = v.optString("verdict", "none");
+        List<Object> checks = new ArrayList<>();
+        if (v.optJSONArray("checks") != null) {
+            checks.addAll(v.getJSONArray("checks"));
+        }
+        JSONObject cwv = v.optJSONObject("cwv");
+        if (cwv != null && cwv.optJSONArray("checks") != null) {
+            checks.addAll(cwv.getJSONArray("checks"));
+        }
+        for (Object o : checks) {
+            JSONObject c = (JSONObject) o;
+            String unit = c.optString("unit", "").isEmpty() ? "" : " " + c.optString("unit");
+            String dir = "max".equals(c.optString("dir")) ? "<=" : ">=";
+            info(log, "Verdict check " + (c.optBoolean("pass") ? "PASS" : "FAIL") + ": " + c.optString("label", c.optString("key"))
+                    + " " + c.opt("actual") + unit + " (target " + dir + " " + c.opt("target") + unit + ")");
+        }
+        List<String> unevaluated = new ArrayList<>();
+        addAll(unevaluated, v.optJSONArray("unevaluated"));
+        if (cwv != null) {
+            addAll(unevaluated, cwv.optJSONArray("unevaluated"));
+        }
+
+        // Fail closed first: the server answers 'none' both when no thresholds are enabled AND when
+        // thresholds are enabled but no metric could be read (no samples), so check that case before 'none'.
+        if (!unevaluated.isEmpty()) {
+            info(log, "Verdict: FAIL. Thresholds could not be evaluated for this run: " + String.join(", ", unevaluated));
+            return Result.FAILURE;
+        }
+        boolean enabled = v.optBoolean("enabled") || (cwv != null && cwv.optBoolean("enabled"));
+        if ("none".equals(verdict) && enabled) {
+            info(log, "Verdict: FAIL. Thresholds are enabled on LoadFocus but none could be evaluated for this run");
+            return Result.FAILURE;
+        }
+        if ("none".equals(verdict)) {
+            info(log, "Verdict: none. No pass/fail thresholds are enabled for this test on LoadFocus; marking build UNSTABLE");
+            return Result.UNSTABLE;
+        }
+        if ("pass".equals(verdict)) {
+            info(log, "Verdict: PASS");
+            return Result.SUCCESS;
+        }
+        info(log, "Verdict: FAIL");
+        return Result.FAILURE;
+    }
+
+    private static void addAll(List<String> into, JSONArray arr) {
+        if (arr != null) {
+            for (Object o : arr) {
+                into.add(String.valueOf(o));
+            }
+        }
+    }
+
+    private static String describeError(String error) {
+        if (error == null) {
+            return "unknown error";
+        }
+        switch (error) {
+            case "number-of-test-parallel-exceeded":
+                return "too many tests running in parallel for your plan (" + error + ")";
+            case "number-of-daily-tests-exceeded":
+            case "number-of-yearly-tests-exceeded":
+                return "plan test limit reached, see https://loadfocus.com/pricing (" + error + ")";
+            case "invalid-api-key":
+                return "the API key was rejected (" + error + ")";
+            default:
+                return error;
+        }
+    }
+
+    private void validateThresholds() throws AbortException {
+        if (errorUnstableThreshold > 100 || errorFailedThreshold > 100) {
+            throw new AbortException(prefix("error percentage thresholds must be between 0 and 100"));
+        }
+        if (!isVerdictUsed() && !hasLocalThresholds()) {
+            throw new AbortException(prefix("nothing to check: set at least one threshold or enable useVerdict"));
+        }
+        if (errorRatePct != null && (errorRatePct < 0 || errorRatePct > 100)) {
+            throw new AbortException(prefix("errorRatePct must be between 0 and 100"));
+        }
+    }
+
+    private boolean hasLocalThresholds() {
+        return errorUnstableThreshold >= 0 || errorFailedThreshold >= 0
+                || responseTimeUnstableThreshold >= 0 || responseTimeFailedThreshold >= 0;
+    }
+
+    private void logConfig(PrintStream log) {
+        logThreshold(log, Result.UNSTABLE, "error percentage", errorUnstableThreshold, "%");
+        logThreshold(log, Result.FAILURE, "error percentage", errorFailedThreshold, "%");
+        logThreshold(log, Result.UNSTABLE, "average response time", responseTimeUnstableThreshold, " ms");
+        logThreshold(log, Result.FAILURE, "average response time", responseTimeFailedThreshold, " ms");
+        if (isVerdictUsed()) {
+            info(log, "Config: build FAILURE if the LoadFocus verdict (thresholds set on loadfocus.com) fails");
+        }
+    }
+
+    private static void logThreshold(PrintStream log, Result r, String metric, int value, String unit) {
+        if (value >= 0) {
+            info(log, "Config: build " + r + " if " + metric + " is greater than " + value + unit);
+        }
+    }
+
+    private String resolveApiKey(Run<?, ?> run) {
+        String id = Util.fixEmpty(apiKey);
+        if (id == null) {
+            id = Util.fixEmpty(getDescriptor().getApiKey());
+        }
+        if (id == null) {
+            return null; // never guess: the first visible credential may belong to another account
+        }
+        for (LoadCredential c : lookup(run.getParent())) {
+            if (id.equals(c.getId())) {
+                return c.getApiKey().getPlainText();
+            }
+        }
+        // A standard "Secret text" credential, resolved with the build's own permissions.
+        StringCredentials secret = CredentialsProvider.findCredentialById(id, StringCredentials.class, run);
+        return secret == null ? null : secret.getSecret().getPlainText();
+    }
+
+    static Secret findKey(Item item, String id) {
+        for (LoadCredential c : lookup(item)) {
+            if (c.getId().equals(id)) {
+                return c.getApiKey();
+            }
+        }
+        for (StringCredentials c : lookupSecretTexts(item)) {
+            if (c.getId().equals(id)) {
+                return c.getSecret();
+            }
+        }
+        return null;
+    }
+
+    static List<StringCredentials> lookupSecretTexts(Item item) {
+        if (item == null) {
+            return CredentialsProvider.lookupCredentialsInItemGroup(StringCredentials.class, Jenkins.get(), ACL.SYSTEM2, Collections.<DomainRequirement>emptyList());
+        }
+        return CredentialsProvider.lookupCredentialsInItem(StringCredentials.class, item, ACL.SYSTEM2, Collections.<DomainRequirement>emptyList());
+    }
+
+    static List<LoadCredential> lookup(Item item) {
+        if (item == null) {
+            return CredentialsProvider.lookupCredentialsInItemGroup(LoadCredential.class, Jenkins.get(), ACL.SYSTEM2, Collections.<DomainRequirement>emptyList());
+        }
+        return CredentialsProvider.lookupCredentialsInItem(LoadCredential.class, item, ACL.SYSTEM2, Collections.<DomainRequirement>emptyList());
+    }
+
+    private static String prefix(String s) {
+        return "loadfocus.com: " + s;
+    }
+
+    private static void info(PrintStream log, String s) {
+        log.println(prefix(s));
+    }
+
+    @Override
+    public BuildStepMonitor getRequiredMonitorService() {
+        return BuildStepMonitor.BUILD;
+    }
+
+    public String getApiKey() {
         return apiKey;
     }
 
-	public int getResponseTimeFailedThreshold() {
-        return responseTimeFailedThreshold;
-    }
-
-    public void setResponseTimeFailedThreshold(int responseTimeFailedThreshold) {
-        this.responseTimeFailedThreshold = responseTimeFailedThreshold;
-    }
-
-    public int getResponseTimeUnstableThreshold() {
-        return responseTimeUnstableThreshold;
-    }
-
-    public void setResponseTimeUnstableThreshold(int responseTimeUnstableThreshold) {
-        this.responseTimeUnstableThreshold = responseTimeUnstableThreshold;
-    }
-
-    public int getErrorFailedThreshold() {
-        return errorFailedThreshold;
-    }
-
-    public void setErrorFailedThreshold(int errorFailedThreshold) {
-        this.errorFailedThreshold = Math.max(0, Math.min(errorFailedThreshold, 100));
-    }
-
-    public int getErrorUnstableThreshold() {
-        return errorUnstableThreshold;
-    }
-
-    public void setErrorUnstableThreshold(int errorUnstableThreshold) {
-        this.errorUnstableThreshold = Math.max(0, Math.min(errorUnstableThreshold,
-                100));
+    @DataBoundSetter
+    public void setApiKey(String apiKey) {
+        this.apiKey = Util.fixEmpty(apiKey);
     }
 
     public String getTestId() {
@@ -344,196 +608,294 @@ public class LoadPublisher extends Notifier {
         this.testId = testId;
     }
 
+    @Deprecated
     public String getTestName() {
         return testName;
     }
 
-    public void setTestName(String testName){
-        this.testName = testName;
+    public Integer getErrorFailedThreshold() {
+        return orNull(errorFailedThreshold);
     }
 
-	@Override
+    @DataBoundSetter
+    public void setErrorFailedThreshold(Integer value) {
+        this.errorFailedThreshold = orUnset(value);
+    }
+
+    public Integer getErrorUnstableThreshold() {
+        return orNull(errorUnstableThreshold);
+    }
+
+    @DataBoundSetter
+    public void setErrorUnstableThreshold(Integer value) {
+        this.errorUnstableThreshold = orUnset(value);
+    }
+
+    public Integer getResponseTimeFailedThreshold() {
+        return orNull(responseTimeFailedThreshold);
+    }
+
+    @DataBoundSetter
+    public void setResponseTimeFailedThreshold(Integer value) {
+        this.responseTimeFailedThreshold = orUnset(value);
+    }
+
+    public Integer getResponseTimeUnstableThreshold() {
+        return orNull(responseTimeUnstableThreshold);
+    }
+
+    @DataBoundSetter
+    public void setResponseTimeUnstableThreshold(Integer value) {
+        this.responseTimeUnstableThreshold = orUnset(value);
+    }
+
+    public boolean isUseVerdict() {
+        return useVerdict;
+    }
+
+    @DataBoundSetter
+    public void setUseVerdict(boolean useVerdict) {
+        this.useVerdict = useVerdict;
+    }
+
+    public int getTimeoutMinutes() {
+        return timeoutMinutes > 0 ? timeoutMinutes : DEFAULT_TIMEOUT_MINUTES;
+    }
+
+    @DataBoundSetter
+    public void setTimeoutMinutes(int timeoutMinutes) {
+        this.timeoutMinutes = timeoutMinutes > 0 ? timeoutMinutes : DEFAULT_TIMEOUT_MINUTES;
+    }
+
+    public boolean isShareReport() {
+        return shareReport;
+    }
+
+    @DataBoundSetter
+    public void setShareReport(boolean shareReport) {
+        this.shareReport = shareReport;
+    }
+
+    public boolean isTagRun() {
+        return tagRun == null || tagRun;
+    }
+
+    @DataBoundSetter
+    public void setTagRun(boolean tagRun) {
+        this.tagRun = tagRun ? null : Boolean.FALSE;
+    }
+
+    public String getReleaseTag() {
+        return releaseTag;
+    }
+
+    @DataBoundSetter
+    public void setReleaseTag(String releaseTag) {
+        this.releaseTag = Util.fixEmptyAndTrim(releaseTag);
+    }
+
+    public Integer getP95Ms() {
+        return p95Ms;
+    }
+
+    @DataBoundSetter
+    public void setP95Ms(Integer p95Ms) {
+        this.p95Ms = p95Ms;
+    }
+
+    public Integer getP99Ms() {
+        return p99Ms;
+    }
+
+    @DataBoundSetter
+    public void setP99Ms(Integer p99Ms) {
+        this.p99Ms = p99Ms;
+    }
+
+    public Double getErrorRatePct() {
+        return errorRatePct;
+    }
+
+    @DataBoundSetter
+    public void setErrorRatePct(Double errorRatePct) {
+        this.errorRatePct = errorRatePct;
+    }
+
+    public Double getMinRps() {
+        return minRps;
+    }
+
+    @DataBoundSetter
+    public void setMinRps(Double minRps) {
+        this.minRps = minRps;
+    }
+
+    private static Integer orNull(int v) {
+        return v < 0 ? null : v;
+    }
+
+    private static int orUnset(Integer v) {
+        return v == null || v < 0 ? -1 : v;
+    }
+
+    /** Builds saved before timeoutMinutes existed load it as 0. */
+    protected Object readResolve() {
+        if (timeoutMinutes <= 0) {
+            timeoutMinutes = DEFAULT_TIMEOUT_MINUTES;
+        }
+        return this;
+    }
+
+    @Override
     public LoadPerformancePublisherDescriptor getDescriptor() {
-        return DESCRIPTOR;
+        return (LoadPerformancePublisherDescriptor) super.getDescriptor();
     }
 
     @Extension
-    public static final LoadPerformancePublisherDescriptor DESCRIPTOR = new LoadPerformancePublisherDescriptor();
-
-	public static final class DescriptorImpl
-    	extends LoadPerformancePublisherDescriptor {
-	}
-
-	public static class LoadPerformancePublisherDescriptor extends BuildStepDescriptor<Publisher> {
-		private String apiKey;
+    public static class LoadPerformancePublisherDescriptor extends BuildStepDescriptor<Publisher> {
+        private String apiKey;
 
         public LoadPerformancePublisherDescriptor() {
             super(LoadPublisher.class);
             load();
         }
 
-        public FormValidation doCheckErrorUnstableThreshold(@QueryParameter String value) throws IOException, ServletException {
+        public FormValidation doCheckErrorUnstableThreshold(@QueryParameter String value) {
+            return checkPercent(value);
+        }
+
+        public FormValidation doCheckErrorFailedThreshold(@QueryParameter String value) {
+            return checkPercent(value);
+        }
+
+        public FormValidation doCheckResponseTimeUnstableThreshold(@QueryParameter String value) {
+            return checkNonNegative(value);
+        }
+
+        public FormValidation doCheckResponseTimeFailedThreshold(@QueryParameter String value) {
+            return checkNonNegative(value);
+        }
+
+        private static FormValidation checkPercent(String value) {
+            FormValidation v = checkNonNegative(value);
+            if (v.kind == FormValidation.Kind.OK && Util.fixEmptyAndTrim(value) != null && Integer.parseInt(value.trim()) > 100) {
+                return FormValidation.error("Value should be in this range: 0 - 100");
+            }
+            return v;
+        }
+
+        private static FormValidation checkNonNegative(String value) {
+            if (Util.fixEmptyAndTrim(value) == null) {
+                return FormValidation.ok("Leave empty to skip this threshold");
+            }
             try {
-                int errorPercentageUnstable = Integer.parseInt(value);
-                if (Util.fixEmptyAndTrim(value) == null) {
-                    return FormValidation.error("Value cannot be empty");
-                }
-                if (errorPercentageUnstable>100) {
-                    return FormValidation.error("Value should be in this range: 0 - 100");
-                } else {
-                    return FormValidation.ok();
-                }
+                return Integer.parseInt(value.trim()) < 0 ? FormValidation.error("Value cannot be negative") : FormValidation.ok();
             } catch (NumberFormatException e) {
                 return FormValidation.error("Not a number");
             }
         }
 
-        public FormValidation doCheckErrorFailedThreshold(@QueryParameter String value) throws IOException, ServletException {
-            try {
-                int errorPercentageUnstable = Integer.parseInt(value);
-                if (Util.fixEmptyAndTrim(value) == null) {
-                    return FormValidation.error("Value cannot be empty");
-                }
-                if (errorPercentageUnstable>100) {
-                    return FormValidation.error("Value should be in this range: 0 - 100");
-                } else {
-                    return FormValidation.ok();
-                }
-            } catch (NumberFormatException e) {
-                return FormValidation.error("Not a number");
+        // Used by config.jelly to display the test list.
+        @POST
+        public ListBoxModel doFillTestIdItems(@AncestorInPath Item item, @QueryParameter String apiKey) {
+            ListBoxModel items = new ListBoxModel();
+            if (!canConfigure(item)) {
+                return items;
             }
-        }
-
-        public FormValidation doCheckResponseTimeUnstableThreshold(@QueryParameter String value) throws IOException, ServletException {
-            try {
-                if (Util.fixEmptyAndTrim(value) == null) {
-                    return FormValidation.error("Value cannot be empty");
-                } else {
-                    return FormValidation.ok();
-                }
-            } catch (NumberFormatException e) {
-                return FormValidation.error("Not a number");
-            }
-        }
-
-        public FormValidation doCheckResponseTimeFailedThreshold(@QueryParameter String value) throws IOException, ServletException {
-            try {
-                if (Util.fixEmptyAndTrim(value) == null) {
-                    return FormValidation.error("Value cannot be empty");
-                } else {
-                    return FormValidation.ok();
-                }
-            } catch (NumberFormatException e) {
-                return FormValidation.error("Not a number");
-            }
-        }
-
-     // Used by config.jelly to display the test list.
-        public ListBoxModel doFillTestIdItems(@QueryParameter String apiKey) throws FormValidation {
-            if (StringUtils.isBlank(apiKey)) {
+            if (Util.fixEmpty(apiKey) == null) {
                 apiKey = getApiKey();
             }
-
-            Secret apiKeyValue = null;
-            Item item = Stapler.getCurrentRequest().findAncestorObject(Item.class);
-            for (LoadCredential c : CredentialsProvider
-                    .lookupCredentials(LoadCredential.class, item, ACL.SYSTEM)) {
-                if (StringUtils.equals(apiKey, c.getId())) {
-                	apiKeyValue = c.getApiKey();
-                    break;
-                }
-            }
-            ListBoxModel items = new ListBoxModel();
+            Secret apiKeyValue = Util.fixEmpty(apiKey) == null ? null : findKey(item, apiKey);
             if (apiKeyValue == null) {
                 items.add("No API Key", "-1");
-            } else {
-	            LoadAPI lda = new LoadAPI(apiKeyValue.getPlainText());
-
-	            try {
-	                List<Map<String, String>> testList = lda.getTestList();
-	                if (testList == null){
-	                    items.add("Invalid API key ", "-1");
-	                } else if (testList.isEmpty()){
-	                    items.add("No tests - create at least one test", "-1");
-	                } else {
-	                    for (Map<String, String> test : testList) {
-	                        items.add(test.get("testrunname") + " #" + test.get("testrunid"), test.get("testrunname"));
-	                    }
-	                }
-	            } catch (Exception e) {
-	                throw FormValidation.error(e.getMessage(), e);
-	            }
+                return items;
+            }
+            try {
+                List<Map<String, String>> testList = new LoadAPI(baseUrl, apiKeyValue.getPlainText()).getTestList();
+                if (testList == null) {
+                    items.add("Invalid API key", "-1");
+                } else if (testList.isEmpty()) {
+                    items.add("No tests - create at least one test", "-1");
+                } else {
+                    for (Map<String, String> test : testList) {
+                        items.add(test.get("testrunname") + " #" + test.get("testrunid"), test.get("testrunname"));
+                    }
+                }
+            } catch (IOException | LoadAPIException e) {
+                items.add("Could not load tests: " + e.getMessage(), "-1");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
             return items;
         }
 
-        public ListBoxModel doFillApiKeyItems() {
+        @POST
+        public ListBoxModel doFillApiKeyItems(@AncestorInPath Item item) {
             ListBoxModel items = new ListBoxModel();
-            Set<String> apiKeys = new HashSet<String>();
-
-            Item item = Stapler.getCurrentRequest().findAncestorObject(Item.class);
-            if (item instanceof Job) {
-                List<LoadCredential> global = CredentialsProvider
-                        .lookupCredentials(LoadCredential.class, Jenkins.getInstance(), ACL.SYSTEM);
-                if (!global.isEmpty() && !StringUtils.isEmpty(getApiKey())) {
-                    items.add("Default API Key", "");
+            if (!canConfigure(item)) {
+                return items;
+            }
+            Set<String> seen = new HashSet<>();
+            if (item instanceof Job && !getCredentials(Jenkins.get()).isEmpty() && Util.fixEmpty(getApiKey()) != null) {
+                items.add("Default API Key", "");
+            }
+            for (LoadCredential c : lookup(item)) {
+                if (seen.add(c.getId())) {
+                    items.add(Util.fixEmpty(c.getDescription()) != null ? c.getDescription() : c.getId(), c.getId());
                 }
             }
-            for (LoadCredential c : CredentialsProvider
-                    .lookupCredentials(LoadCredential.class, item, ACL.SYSTEM)) {
-                String id = c.getId();
-                if (!apiKeys.contains(id)) {
-                    items.add(StringUtils.defaultIfEmpty(c.getDescription(), id), id);
-                    apiKeys.add(id);
+            for (StringCredentials c : lookupSecretTexts(item)) {
+                if (seen.add(c.getId())) {
+                    items.add("Secret text: " + (Util.fixEmpty(c.getDescription()) != null ? c.getDescription() : c.getId()), c.getId());
                 }
             }
             return items;
+        }
+
+        private static boolean canConfigure(Item item) {
+            return item == null ? Jenkins.get().hasPermission(Jenkins.ADMINISTER) : item.hasPermission(Item.CONFIGURE);
         }
 
         public List<LoadCredential> getCredentials(Object scope) {
-            List<LoadCredential> result = new ArrayList<LoadCredential>();
-            Set<String> apiKeys = new HashSet<String>();
-
+            List<LoadCredential> result = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
             Item item = scope instanceof Item ? (Item) scope : null;
-            for (LoadCredential c : CredentialsProvider
-                    .lookupCredentials(LoadCredential.class, item, ACL.SYSTEM)) {
-                String id = c.getId();
-                if (!apiKeys.contains(id)) {
+            for (LoadCredential c : lookup(item)) {
+                if (seen.add(c.getId())) {
                     result.add(c);
-                    apiKeys.add(id);
                 }
             }
             return result;
         }
 
-		@Override
-		public boolean isApplicable(Class<? extends AbstractProject> jobType) {
-			return true;
-		}
+        @Override
+        public boolean isApplicable(Class<? extends AbstractProject> jobType) {
+            return true;
+        }
 
-		@Override
-		public String getDisplayName() {
-			return "Load Testing by LoadFocus.com";
-		}
+        @NonNull
+        @Override
+        public String getDisplayName() {
+            return "Load Testing by LoadFocus.com";
+        }
 
-		@Override
-        public boolean configure(StaplerRequest req, JSONObject formData) throws FormException {
+        @Override
+        public boolean configure(StaplerRequest2 req, JSONObject formData) {
             apiKey = formData.optString("apiKey");
             save();
             return true;
         }
 
-		public String getApiKey() {
-            List<LoadCredential> credentials = CredentialsProvider
-                    .lookupCredentials(LoadCredential.class, Jenkins.getInstance(), ACL.SYSTEM);
-            if (StringUtils.isBlank(apiKey) && !credentials.isEmpty()) {
+        public String getApiKey() {
+            List<LoadCredential> credentials = lookup(null);
+            if (Util.fixEmpty(apiKey) == null && !credentials.isEmpty()) {
                 return credentials.get(0).getId();
             }
             if (credentials.size() == 1) {
                 return credentials.get(0).getId();
             }
-            for (LoadCredential c: credentials) {
-                if (StringUtils.equals(c.getId(), apiKey)) {
+            for (LoadCredential c : credentials) {
+                if (c.getId().equals(apiKey)) {
                     return apiKey;
                 }
             }
@@ -541,9 +903,8 @@ public class LoadPublisher extends Notifier {
             return "";
         }
 
-		public void setApiKey(String apiKey) {
-			this.apiKey = apiKey;
-	    }
-
-	}
+        public void setApiKey(String apiKey) {
+            this.apiKey = apiKey;
+        }
+    }
 }
