@@ -1,27 +1,42 @@
 package com.loadfocus.jenkins;
 
-import hudson.model.HealthReport;
-import hudson.model.HealthReportingAction;
-import hudson.model.AbstractBuild;
+import com.loadfocus.jenkins.api.LoadAPI;
+import hudson.model.Run;
+import jenkins.model.RunAction2;
 
-public class LoadBuildAction implements HealthReportingAction {
-	private final AbstractBuild<?, ?> build;
-	
-	private String testrunid = null;
-	private String testrunname = null;
-	private String apikey = null;
+/**
+ * Links a build to its LoadFocus run (test, run id, report link and verdict). Stores no credentials;
+ * fields written by older versions are ignored and dropped when the build is saved again.
+ */
+public class LoadBuildAction implements RunAction2 {
+	private transient Run<?, ?> run;
 
-	public LoadBuildAction(AbstractBuild<?, ?> build, String testrunname, String testrunid, String apikey) {
-		this.build = build;
+	private String testrunid;
+	private String testrunname;
+	private String reportUrl;
+	private String verdict;
+
+	public LoadBuildAction(String testrunname, String testrunid, String reportUrl, String verdict) {
 		this.testrunname = testrunname;
 		this.testrunid = testrunid;
-		this.apikey = apikey;
+		this.reportUrl = reportUrl;
+		this.verdict = verdict;
 	}
-	
-	public AbstractBuild<?, ?> getOwner() {
-        return build;
-    }
-	
+
+	@Override
+	public void onAttached(Run<?, ?> r) {
+		this.run = r;
+	}
+
+	@Override
+	public void onLoad(Run<?, ?> r) {
+		this.run = r;
+	}
+
+	public Run<?, ?> getOwner() {
+		return run;
+	}
+
 	public String getIconFileName() {
 		return "/plugin/loadfocus-loadtest/images/icon48.png";
 	}
@@ -34,31 +49,26 @@ public class LoadBuildAction implements HealthReportingAction {
 		return "loadfocus";
 	}
 
-	public HealthReport getBuildHealth() {
-		return null;
-	}
-
 	public String getTestrunid() {
 		return testrunid;
-	}
-
-	public void setTestrunid(String testrunid) {
-		this.testrunid = testrunid;
 	}
 
 	public String getTestrunname() {
 		return testrunname;
 	}
 
-	public void setTestrunname(String testrunname) {
-		this.testrunname = testrunname;
+	public String getVerdict() {
+		return verdict;
 	}
 
-	public String getApikey() {
-		return apikey;
-	}
-
-	public void setApikey(String apikey) {
-		this.apikey = apikey;
+	/** Public share link when one was created, else the LoadFocus results page (login required). */
+	public String getReportUrl() {
+		if (reportUrl != null) {
+			return reportUrl;
+		}
+		if (testrunname == null || testrunid == null) {
+			return null;
+		}
+		return LoadAPI.resultsUrl(LoadPublisher.baseUrl, testrunname, testrunid);
 	}
 }

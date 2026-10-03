@@ -1,22 +1,23 @@
-<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define"
-  xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:l="/lib/layout">
 
-<l:layout>
-    <st:include it="${it.owner}" page="sidepanel.jelly" from="${it.owner}" />
+<l:layout title="${it.displayName}">
+    <st:include it="${it.owner}" page="sidepanel.jelly" from="${it.owner}" optional="true"/>
     <l:main-panel>
-        <h1><a href="https://loadfocus.com" target="_blank">${%LoadFocus.com Test Results}</a></h1>
-        <br/>
-        
-        <j:if test="${it.testrunname == null || it.testrunid == null}">
-          <div>Test not finished or invalid</div>
-        </j:if>
-        
-        <j:if test="${it.testrunname != null &amp;&amp; it.testrunid != null}">
-          <iframe id="mainLFIFrame" border="0" width="100%" height="900" src="//loadfocus.com/tests-print?testrunname=${it.testrunname}&amp;testrunid=${it.testrunid}&amp;apikey=${it.apikey}">
-              <p>Your browser does not support iFrames.</p>
-          </iframe>
-        </j:if>
+        <h1>${%LoadFocus.com Test Results}</h1>
 
+        <j:choose>
+          <j:when test="${it.reportUrl == null}">
+            <p>${%Test not finished or invalid}</p>
+          </j:when>
+          <j:otherwise>
+            <p>${%Test}: <strong>${it.testrunname}</strong>, ${%run} #${it.testrunid}</p>
+            <j:if test="${it.verdict != null}">
+              <p>${%Verdict}: <strong>${it.verdict}</strong></p>
+            </j:if>
+            <p><a href="${it.reportUrl}" target="_blank" rel="noopener noreferrer">${%Open the report on LoadFocus.com}</a></p>
+          </j:otherwise>
+        </j:choose>
     </l:main-panel>
 </l:layout>
 </j:jelly>

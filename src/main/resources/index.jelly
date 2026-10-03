@@ -1,3 +1,4 @@
+<?jelly escape-by-default='true'?>
 <div>
   Cloud Load Testing for Websites and APIs with thousands of parallel connections - by LoadFocus.com.
 </div>

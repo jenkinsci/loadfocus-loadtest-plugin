@@ -1,371 +1,259 @@
 package com.loadfocus.jenkins.api;
 
-import com.google.gson.Gson;
+import hudson.ProxyConfiguration;
 import net.sf.json.JSON;
 import net.sf.json.JSONArray;
+import net.sf.json.JSONException;
 import net.sf.json.JSONObject;
 import net.sf.json.JSONSerializer;
-import org.apache.commons.httpclient.HttpClient;
-import org.apache.commons.httpclient.HttpException;
-import org.apache.commons.httpclient.HttpStatus;
-import org.apache.commons.httpclient.methods.GetMethod;
-import org.apache.commons.httpclient.methods.PostMethod;
-import org.apache.http.Consts;
-import org.apache.http.HttpEntity;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
-import java.io.PrintStream;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Client for the LoadFocus public load-test API (cloud "general" tests).
+ * The API key travels only in the {@code loadfocus-auth} header and is never logged.
+ */
 public class LoadAPI {
-    static final String baseApiUri = "https://loadfocus.com/";
+    public static final String DEFAULT_BASE_URL = "https://loadfocus.com/";
+    private static final String TESTS = "api/v1/loadtests";
 
-    PrintStream logger = System.out;
-    String apiKey;
+    private final String baseUrl;
+    private final String apiKey;
+    private final HttpClient http;
 
     public LoadAPI(String apiKey) {
-        logger.println("apiKey: " + apiKey);
+        this(DEFAULT_BASE_URL, apiKey);
+    }
+
+    public LoadAPI(String baseUrl, String apiKey) {
+        this.baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
         this.apiKey = apiKey;
+        this.http = ProxyConfiguration.newHttpClientBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                // Never follow redirects: the API key header would travel to the redirect target.
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
     }
 
-    public List<Map<String, String>> getTestList() {
-        JSONArray list = getTests();
-        if (list == null) {
-            return null;
-        }
-        List<Map<String, String>> tests = new ArrayList<>();
+    /** Result of an HTTP call: status code plus raw body. */
+    public static final class Response {
+        public final int status;
+        public final String body;
 
-        for (Object test : list) {
-            JSONObject t = (JSONObject) test;
-            String testrunname = t.getString("testrunname");
-            String testrunid = t.getString("testrunid");
-            Map <String, String> m = new HashMap<>();
-            m.put("testrunname", testrunname);
-            m.put("testrunid", testrunid);
-            tests.add(m);
+        Response(int status, String body) {
+            this.status = status;
+            this.body = body == null ? "" : body;
         }
 
-        return tests;
+        JSON json() throws LoadAPIException {
+            try {
+                return JSONSerializer.toJSON(body);
+            } catch (JSONException e) {
+                throw new LoadAPIException("unexpected non-JSON response (HTTP " + status + ")", status);
+            }
+        }
+
+        JSONObject object() throws LoadAPIException {
+            JSON j = json();
+            if (!(j instanceof JSONObject)) {
+                throw new LoadAPIException("unexpected response shape (HTTP " + status + ")", status);
+            }
+            return (JSONObject) j;
+        }
     }
 
-    protected boolean isEmptyString(String string) {
-        return string == null || string.trim().isEmpty();
+    /** Outcome of launching a run. */
+    public static final class ExecuteResult {
+        public final boolean started;
+        public final String error;
+
+        ExecuteResult(boolean started, String error) {
+            this.started = started;
+            this.error = error;
+        }
     }
 
     public boolean isValidApiKey() {
-        if (isEmptyString(apiKey)) {
-            logger.println("getTestApi apiKey is empty");
+        if (apiKey == null || apiKey.trim().isEmpty()) {
             return false;
         }
-        boolean isValid = validateAPIKey("api/v1/key/validate");
-        if (!isValid){
-            logger.println("invalid ApiKey");
+        try {
+            Response r = get("api/v1/key/validate");
+            return r.status == 200 && "valid".equals(r.object().optString("response"));
+        } catch (IOException | LoadAPIException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return false;
         }
-        return isValid;
     }
 
-    public boolean validateAPIKey(String path){
-        String result = doGetRequest(path);
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return false;
-        }
-
-        return true;
-    }
-
-    public JSONArray getTests() {
-        logger.println("get api/v1/loadtests");
-        return getListData("api/v1/loadtests");
-    }
-
-    private JSONArray getListData(String path) {
-        String result = doGetRequest(path);
-//        logger.println("Result " + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
+    /** The account's cloud tests as {testrunname, testrunid} maps, or null when the key is rejected. */
+    public List<Map<String, String>> getTestList() throws IOException, InterruptedException, LoadAPIException {
+        Response r = get(TESTS);
+        if (r.status != 200) {
             return null;
         }
+        JSON j = r.json();
+        if (!(j instanceof JSONArray)) {
+            return null;
+        }
+        List<Map<String, String>> tests = new ArrayList<>();
+        for (Object o : (JSONArray) j) {
+            JSONObject t = (JSONObject) o;
+            Map<String, String> m = new HashMap<>();
+            m.put("testrunname", t.optString("testrunname"));
+            m.put("testrunid", t.optString("testrunid"));
+            tests.add(m);
+        }
+        return tests;
+    }
 
+    /** The test's latest run id ("" when the test has never run). */
+    public String latestRunId(String testrunname) throws IOException, InterruptedException, LoadAPIException {
+        Response r = get(TESTS + "/retrieveconfig?testrunname=" + enc(testrunname));
+        requireOk(r, "read test configuration");
+        return r.object().optString("testrunid", "");
+    }
+
+    public ExecuteResult execute(String testrunname) throws IOException, InterruptedException {
+        Response r = post(TESTS + "/newtest/execute?testrunname=" + enc(testrunname));
+        JSONObject body = null;
         try {
-            JSON list = JSONSerializer.toJSON(result);
-            if (list.isArray()) {
-                return (JSONArray) list;
-            } else {
-                return null;
+            body = r.object();
+        } catch (LoadAPIException e) {
+            // fall through: reported below as an HTTP error
+        }
+        if (r.status == 200 && body != null && "true".equals(body.optString("success"))) {
+            return new ExecuteResult(true, null);
+        }
+        String error = body == null ? null : body.optString("error", null);
+        if (error == null && body != null) {
+            error = body.optString("response", null);
+        }
+        return new ExecuteResult(false, error != null ? error : "HTTP " + r.status);
+    }
+
+    public JSONObject getState(String testrunname, String testrunid) throws IOException, InterruptedException, LoadAPIException {
+        Response r = get(TESTS + "/state?testrunname=" + enc(testrunname) + "&testrunid=" + enc(testrunid));
+        requireOk(r, "read run state");
+        return r.object();
+    }
+
+    /** Whole-run analysis (overall + per-label metrics), or null while the run has no samples yet. */
+    public JSONObject getAnalysis(String testrunname, String testrunid) throws IOException, InterruptedException, LoadAPIException {
+        Response r = get(TESTS + "/analysis?testrunname=" + enc(testrunname) + "&testrunid=" + enc(testrunid));
+        if (r.status == 404) {
+            return null;
+        }
+        requireOk(r, "read run analysis");
+        return r.object();
+    }
+
+    /** Server-side pass/fail verdict against the thresholds configured on loadfocus.com. */
+    public JSONObject getVerdict(String testrunname, String testrunid) throws IOException, InterruptedException, LoadAPIException {
+        Response r = get(TESTS + "/verdict?testrunname=" + enc(testrunname) + "&testrunid=" + enc(testrunid));
+        requireOk(r, "read verdict");
+        return r.object();
+    }
+
+    /** Creates (or returns) a public share link for a finished run. */
+    public String createShareLink(String testrunname, String testrunid) throws IOException, InterruptedException, LoadAPIException {
+        JSONObject payload = new JSONObject();
+        payload.put("testrunname", testrunname);
+        payload.put("testrunid", testrunid);
+        HttpRequest req = request(TESTS + "/share")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
+                .build();
+        Response r = send(req);
+        requireOk(r, "create share link");
+        return r.object().optString("url", null);
+    }
+
+    /**
+     * Replaces the test's pass/fail thresholds on loadfocus.com (metrics left out are cleared) and enables them.
+     * Values: p95Ms, p99Ms, errorRatePct, minRps.
+     */
+    public void putThresholds(String testrunname, Map<String, Number> values) throws IOException, InterruptedException, LoadAPIException {
+        JSONObject payload = new JSONObject();
+        payload.put("testrunname", testrunname);
+        payload.put("enabled", true);
+        for (Map.Entry<String, Number> e : values.entrySet()) {
+            payload.put(e.getKey(), e.getValue());
+        }
+        HttpRequest req = request(TESTS + "/thresholds")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString(payload.toString()))
+                .build();
+        requireOk(send(req), "save thresholds");
+    }
+
+    /** Labels a run (shown on its LoadFocus results and trend), e.g. with the Jenkins build that started it. */
+    public void annotateRun(String testrunname, String testrunid, String label, String url) throws IOException, InterruptedException, LoadAPIException {
+        String form = "testrunname=" + enc(testrunname) + "&testrunid=" + enc(testrunid) + "&label=" + enc(label)
+                + (url == null ? "" : "&url=" + enc(url));
+        HttpRequest req = request("api/test/general/run-annotation")
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build();
+        requireOk(send(req), "tag run");
+    }
+
+    public String resultsUrl(String testrunname, String testrunid) {
+        return resultsUrl(baseUrl, testrunname, testrunid);
+    }
+
+    public static String resultsUrl(String baseUrl, String testrunname, String testrunid) {
+        return (baseUrl.endsWith("/") ? baseUrl : baseUrl + "/")
+                + "tests?testrunname=" + enc(testrunname) + "&testrunid=" + enc(testrunid);
+    }
+
+    private static void requireOk(Response r, String what) throws LoadAPIException {
+        if (r.status != 200) {
+            String detail = "";
+            try {
+                JSONObject o = r.object();
+                detail = o.optString("error", o.optString("response", ""));
+            } catch (LoadAPIException ignored) {
+                // no JSON body
             }
-        } catch (RuntimeException ex) {
-            logger.println("Got Exception: " + ex);
-            return null;
+            throw new LoadAPIException("could not " + what + ": HTTP " + r.status + (detail.isEmpty() ? "" : " (" + detail + ")"), r.status);
         }
     }
 
-    public JSONObject getRemainLimits() {
-        logger.println("in #getRemainLimits");
-        String result = doGetRequest("api/v1/account/user/remainlimit");
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONObject json = (JSONObject) JSONSerializer.toJSON(result);
-        return  json;
+    private Response get(String path) throws IOException, InterruptedException {
+        return send(request(path).GET().build());
     }
 
-    public JSONObject getState(String testrunname, String testrunid) {
-        logger.println("in #getState");
-        String result = doGetRequest("api/v1/loadtests/state?testrunname=" + testrunname + "&testrunid=" + testrunid);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONObject json = (JSONObject) JSONSerializer.toJSON(result);
-        return  json;
+    private Response post(String path) throws IOException, InterruptedException {
+        return send(request(path).POST(HttpRequest.BodyPublishers.noBody()).build());
     }
 
-    public JSONObject retrieveConfig(String testrunname) {
-        logger.println("in #retrieveConfig");
-        String result = doGetRequest("api/v1/loadtests/retrieveconfig?testrunname=" + testrunname);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        return (JSONObject) JSONSerializer.toJSON(result);
+    private HttpRequest.Builder request(String path) {
+        return HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .timeout(Duration.ofSeconds(120))
+                .header("Accept", "application/json")
+                .header("loadfocus-auth", apiKey == null ? "" : apiKey);
     }
 
-
-    public List<Map<String, String>> getTestConfig(String testrunname, String testrunid) {
-        logger.println("in #getTestConfig");
-        String result = doGetRequest("api/v1/loadtests/result/config?testrunname=" + testrunname + "&testrunid=" + testrunid);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONArray configList = (JSONArray) JSONSerializer.toJSON(result);
-        if (configList == null) {
-            return null;
-        }
-        List<Map<String, String>> configs = new ArrayList<>();
-
-        for (Object config : configList) {
-            JSONObject t = (JSONObject) config;
-            String location = t.getString("location");
-            String testmachinedns = t.getString("testmachinedns");
-            String httprequest = t.getString("httprequest");
-            Map <String, String> m = new HashMap<String, String>();
-            m.put("testrunname", testrunname);
-            m.put("location", location);
-            m.put("testmachinedns", testmachinedns);
-            m.put("httprequest", httprequest);
-            configs.add(m);
-        }
-
-        return configs;
+    private Response send(HttpRequest req) throws IOException, InterruptedException {
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        return new Response(resp.statusCode(), resp.body());
     }
 
-    public JSONObject runTest(String testId) {
-        logger.println("in #runTest");
-        logger.println(baseApiUri);
-
-        String path = "api/v1/loadtests/newtest/execute?testrunname=" + testId;
-
-        String result = doPostRequest(path);
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONObject resultBody = (JSONObject) JSONSerializer.toJSON(result);
-
-        return resultBody;
-    }
-
-    public JSONArray getLabels(String testrunname, String testrunid, String apikey) throws UnsupportedEncodingException {
-        logger.println("in #runTest");
-        logger.println(baseApiUri);
-
-        String path = "api/v1/loadtests/labels-noform?apikey=" + apikey;
-
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.accumulate("testrunname", testrunname);
-        jsonObject.accumulate("testrunid", testrunid);
-        String result = doPostRequest(path, jsonObject, "application/x-www-form-urlencoded");
-        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        JSONArray resultBody = (JSONArray) JSONSerializer.toJSON(result);
-
-        return resultBody;
-    }
-
-    public JSONArray getResultsFinal(String testrunname, String testrunid, JSONObject state, String label, String apikey) throws UnsupportedEncodingException {
-        logger.println("in #runTest");
-        logger.println(baseApiUri);
-
-        String path = "api/v1/loadtests/aggregate/results-noform?apikey=" + apikey;
-
-        JSONObject jsonObject = new JSONObject();
-        jsonObject.accumulate("testrunname", testrunname);
-        jsonObject.accumulate("testrunid", testrunid);
-        jsonObject.accumulate("teststarttime", state.get("teststarttime").toString());
-        jsonObject.accumulate("teststoptime",  state.get("teststoptime").toString());
-        jsonObject.accumulate("machinenumber", 1);
-
-
-        jsonObject.accumulate("filter[]", label);
-        jsonObject.accumulate("sortasc[]", "timestamp");
-        jsonObject.accumulate("batchsize", 1);
-        jsonObject.accumulate("granularity", "none");
-
-        String result = doPostRequest(path, jsonObject, "application/x-www-form-urlencoded");
-//        logger.println("Result " + result + "\n" + (result.length() > 100 ? result.substring(0, 100) : result));
-        if (result.equalsIgnoreCase("NOTRUNNING")) {
-            return null;
-        }
-
-        return (JSONArray) JSONSerializer.toJSON(result);
-    }
-
-    private String doGetRequest(String path) {
-        URI fullUri;
-        try {
-            fullUri = new URI(baseApiUri + path);
-        } catch (java.net.URISyntaxException ex) {
-            throw new RuntimeException("Incorrect URI format: %s", ex);
-        }
-
-        HttpClient client = new HttpClient();
-
-        GetMethod method = new GetMethod(fullUri.toString());
-        method.addRequestHeader("accept", "application/json");
-        method.addRequestHeader("content-type", "application/json");
-        method.addRequestHeader("loadfocus-auth", apiKey);
-
-        try {
-            int statusCode = client.executeMethod(method);
-            if (statusCode != HttpStatus.SC_OK) {
-                logger.format("Method failed: " + method.getStatusLine());
-            }
-
-            byte[] responseBody = method.getResponseBody();
-          
-            return new String(responseBody, StandardCharsets.UTF_8);
-
-        } catch (HttpException e) {
-            logger.format("Fatal protocol violation: " + e.getMessage());
-        } catch (IOException e) {
-            logger.format("Fatal transport error: " + e.getMessage());
-        } finally {
-            method.releaseConnection();
-        }
-
-        return "NOTRUNNING";
-    }
-
-    private String doPostRequest(String path) {
-        URI fullUri;
-        try {
-            fullUri = new URI(baseApiUri + path);
-        } catch (java.net.URISyntaxException ex) {
-            throw new RuntimeException("Incorrect URI format: %s", ex);
-        }
-
-        HttpClient client = new HttpClient();
-
-        PostMethod method = new PostMethod(fullUri.toString());
-        method.addRequestHeader("Content-Type", "application/json");
-        method.addRequestHeader("loadfocus-auth", apiKey);
-
-        try {
-            int statusCode = client.executeMethod(method);
-            if (statusCode != HttpStatus.SC_OK) {
-                logger.format("Method failed: " + method.getStatusLine());
-            }
-
-            byte[] responseBody = method.getResponseBody();
-
-            return new String(responseBody, StandardCharsets.UTF_8);
-
-        } catch (HttpException e) {
-            logger.format("Fatal protocol violation: " + e.getMessage());
-        } catch (IOException e) {
-            logger.format("Fatal transport error: " + e.getMessage());
-        } finally {
-            method.releaseConnection();
-        }
-
-        return "NOTRUNNING";
-    }
-
-    private String doPostRequest(String path, JSONObject jsonObject, String contentType) throws UnsupportedEncodingException {
-        URI fullUri;
-        try {
-            fullUri = new URI(baseApiUri + path);
-        } catch (java.net.URISyntaxException ex) {
-            throw new RuntimeException("Incorrect URI format: %s", ex);
-        }
-
-        CloseableHttpClient httpclient = HttpClients.createDefault();
-
-        HashMap<String, Object> paramsFromJSON = new Gson().fromJson(jsonObject.toString(), HashMap.class);
-
-        List<NameValuePair> formparams = new ArrayList<>();
-        for (Map.Entry<String, Object> entry : paramsFromJSON.entrySet()) {
-            formparams.add(new BasicNameValuePair(entry.getKey(), entry.getValue().toString()));
-        }
-
-        UrlEncodedFormEntity requestEntity = new UrlEncodedFormEntity(formparams, Consts.UTF_8);
-
-        HttpPost httpPost = new HttpPost(fullUri.toString());
-        httpPost.addHeader("Content-Type", contentType);
-        httpPost.addHeader("loadfocus-auth", apiKey);
-        httpPost.setEntity(requestEntity);
-
-        try {
-            CloseableHttpResponse response = httpclient.execute(httpPost);
-            HttpEntity entity = response.getEntity();
-            String result = EntityUtils.toString(entity);
-            return result;
-        } catch (HttpException e) {
-            logger.format("Fatal protocol violation: " + e.getMessage());
-            return null;
-        } catch (IOException e) {
-            logger.format("Fatal transport error: " + e.getMessage());
-            return null;
-        }
-    }
-
-    private String getDataString(HashMap<String, String> params) throws UnsupportedEncodingException{
-        StringBuilder result = new StringBuilder();
-        boolean first = true;
-        for(Map.Entry<String, String> entry : params.entrySet()){
-            if (first)
-                first = false;
-            else
-                result.append("&");
-            result.append(URLEncoder.encode(entry.getKey(), "UTF-8"));
-            result.append("=");
-            result.append(URLEncoder.encode(entry.getValue(), "UTF-8"));
-        }
-        return result.toString();
+    private static String enc(String s) {
+        return URLEncoder.encode(s == null ? "" : s, StandardCharsets.UTF_8);
     }
 }
