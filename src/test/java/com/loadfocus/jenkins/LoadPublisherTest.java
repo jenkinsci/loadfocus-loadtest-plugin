@@ -134,6 +134,33 @@ class LoadPublisherTest {
         j.assertLogContains("enabled on LoadFocus but none could be evaluated", b);
     }
 
+    // LoadFocus can also compare a run with the test's baseline run (opt-in tolerances, 2026-10-12): the
+    // verdict's "baseline" block says what was compared, or why nothing was.
+    @Test
+    void baselineComparisonIsNamedInTheLog() throws Exception {
+        lf.verdict = "{\"verdict\":\"fail\",\"enabled\":true,\"metricsAvailable\":true,\"unevaluated\":[],"
+                + "\"checks\":[{\"key\":\"p95RegressionPct\",\"label\":\"P95 vs baseline run #5\",\"unit\":\"ms\",\"dir\":\"max\",\"target\":120,\"actual\":130,\"pass\":false}],"
+                + "\"baseline\":{\"status\":\"evaluated\",\"testrunid\":\"5\",\"checks\":[]}}";
+        WorkflowRun b = pipeline("loadfocusLoadTest testId: 'checkout', useVerdict: true", Result.FAILURE);
+        j.assertLogContains("Baseline: compared with run #5", b);
+        j.assertLogContains("Verdict check FAIL: P95 vs baseline run #5 130 ms (target <= 120 ms)", b);
+    }
+
+    @Test
+    void missingBaselineIsExplainedWhenItIsWhyNothingWasEvaluated() throws Exception {
+        lf.verdict = "{\"verdict\":\"none\",\"enabled\":true,\"checks\":[],\"metricsAvailable\":true,\"unevaluated\":[],"
+                + "\"baseline\":{\"status\":\"no-baseline\",\"testrunid\":null,\"checks\":[]}}";
+        WorkflowRun b = pipeline("loadfocusLoadTest testId: 'checkout', useVerdict: true", Result.FAILURE);
+        j.assertLogContains("Baseline: none is set for this test yet, so the baseline checks were skipped", b);
+        j.assertLogContains("enabled on LoadFocus but none could be evaluated", b);
+    }
+
+    @Test
+    void noBaselineBlockPrintsNothingAboutIt() throws Exception {
+        WorkflowRun b = pipeline("loadfocusLoadTest testId: 'checkout', useVerdict: true", Result.SUCCESS);
+        j.assertLogNotContains("Baseline:", b);
+    }
+
     @Test
     void maintenancePageWhilePollingIsRetried() throws Exception {
         lf.stateFailures = 3;

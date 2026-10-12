@@ -445,6 +445,10 @@ public class LoadPublisher extends Notifier implements SimpleBuildStep {
             info(log, "Verdict check " + (c.optBoolean("pass") ? "PASS" : "FAIL") + ": " + c.optString("label", c.optString("key"))
                     + " " + c.opt("actual") + unit + " (target " + dir + " " + c.opt("target") + unit + ")");
         }
+        String baseline = describeBaseline(v.optJSONObject("baseline"));
+        if (baseline != null) {
+            info(log, "Baseline: " + baseline);
+        }
         List<String> unevaluated = new ArrayList<>();
         addAll(unevaluated, v.optJSONArray("unevaluated"));
         if (cwv != null) {
@@ -472,6 +476,28 @@ public class LoadPublisher extends Notifier implements SimpleBuildStep {
         }
         info(log, "Verdict: FAIL");
         return Result.FAILURE;
+    }
+
+    // The verdict's optional "baseline" block (a test with a "max rise vs baseline" tolerance): what the
+    // run was compared with, or why the baseline checks were skipped. Null when there is no block.
+    static String describeBaseline(JSONObject b) {
+        if (b == null || b.isNullObject()) {
+            return null;
+        }
+        String run = b.optString("testrunid", "");
+        boolean hasRun = !run.isEmpty() && !"null".equals(run);
+        switch (b.optString("status", "")) {
+            case "evaluated":
+                return "compared with run #" + run;
+            case "no-baseline":
+                return "none is set for this test yet, so the baseline checks were skipped (set one on a run's results page on loadfocus.com)";
+            case "baseline-metrics-unavailable":
+                return (hasRun ? "run #" + run : "the baseline run") + " has no readable results, so the baseline checks were skipped";
+            case "no-run-metrics":
+                return "this run has no results to compare yet, so the baseline checks were skipped";
+            default:
+                return "could not be read, so the baseline checks were skipped";
+        }
     }
 
     private static void addAll(List<String> into, JSONArray arr) {
